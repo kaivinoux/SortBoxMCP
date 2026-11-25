@@ -60,3 +60,4 @@ Free code signing provided by [SignPath.io](https://signpath.io/), certificate b
 - **100 % Local Execution:** `IA For EveryOne — SortBox E-Mail` runs locally on your Windows device. No telemetry, analytics, or user email data is ever sent to the developer or any third-party backend operated by the project.
 - **Credential Security:** Mail passwords and OAuth tokens are encrypted locally using Windows DPAPI (`electron.safeStorage`) and never leave your machine except to authenticate directly with the email provider you configured.
 - **Optional AI Features:** AI prompts are only sent if you explicitly choose to copy-paste an anonymized sender summary or configure your own local Ollama instance or personal API key.
+- **Full Policy:** [PRIVACY.md](PRIVACY.md)
