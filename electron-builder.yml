@@ -1,7 +1,7 @@
-appId: com.tardis.sortboxmcp
-productName: SortBox MCP
+appId: com.iaforeveryone.sortboxemail
+productName: IA For EveryOne — SortBox E-Mail
 directories:
-  output: release
+  output: release/app
 files:
   - dist/**
   - dist-electron/**
@@ -12,3 +12,4 @@ win:
     - target: zip
       arch:
         - x64
+  artifactName: IA-For-EveryOne-SortBox-Email-${version}-win.${ext}

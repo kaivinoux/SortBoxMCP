@@ -50,7 +50,8 @@ export function McpSettingsView({
     {
       mcpServers: {
         "sortbox-mail": {
-          command: stdioInfo?.executable || "SortBox MCP.exe",
+          command:
+            stdioInfo?.executable || "IA For EveryOne — SortBox E-Mail.exe",
           args: stdioInfo?.args || ["resources/app.asar/dist-electron/main/mcp/stdioBridge.js"],
           env: stdioInfo?.env || { ELECTRON_RUN_AS_NODE: "1" },
         },

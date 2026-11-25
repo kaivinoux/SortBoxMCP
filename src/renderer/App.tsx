@@ -150,11 +150,11 @@ export default function App() {
         <header className="bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-sky-500 text-slate-950 font-bold flex items-center justify-center text-sm">
-              SB
+              IA
             </div>
             <div>
               <h1 className="text-base font-semibold tracking-tight">
-                SortBox MCP
+                IA For EveryOne — SortBox E-Mail
               </h1>
               <p className="text-xs text-slate-400">
                 Tri universel multi-boîtes • 100 % local • Sans IA requise • Serveur MCP optionnel
@@ -209,7 +209,7 @@ export default function App() {
           <div className="bg-slate-900 border border-sky-800/70 rounded-2xl p-6 flex flex-wrap items-center justify-between gap-4">
             <div className="space-y-1">
               <h2 className="text-sm font-semibold text-sky-300">
-                Bienvenue dans SortBox MCP !
+                Bienvenue dans IA For EveryOne — SortBox E-Mail !
               </h2>
               <p className="text-xs text-slate-300 max-w-2xl">
                 Connecte ta première boîte mail (Orange, Gmail, Outlook, Free, OVH, iCloud ou IMAP) pour analyser tes expéditeurs hors-ligne et nettoyer ta boîte en toute sécurité avec aperçu Dry-Run.

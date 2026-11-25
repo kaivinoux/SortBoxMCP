@@ -36,7 +36,7 @@ function recordActivity(
 export function createSortBoxMcpServer(deps: McpRuntimeDeps): McpServer {
   const server = new McpServer({
     name: "sortbox-mcp",
-    version: "0.1.0",
+    version: "0.1.1",
   });
 
   server.registerTool(
@@ -44,7 +44,7 @@ export function createSortBoxMcpServer(deps: McpRuntimeDeps): McpServer {
     {
       title: "Lister les boîtes mail",
       description:
-        "Retourne les comptes mail connectés dans SortBox (sans aucun secret ni mot de passe).",
+        "Retourne les comptes mail connectés dans IA For EveryOne — SortBox E-Mail (sans aucun secret ni mot de passe).",
       inputSchema: {},
     },
     async () => {
@@ -203,7 +203,7 @@ export function createSortBoxMcpServer(deps: McpRuntimeDeps): McpServer {
                   count: m.uids.length,
                   sampleSubjects: m.sampleSubjects,
                 })),
-                note: "Le plan est prêt dans l'onglet 'Plan & Dry-Run' de SortBox pour validation par l'utilisateur.",
+                note: "Le plan est prêt dans l'onglet 'Plan & Dry-Run' de IA For EveryOne — SortBox E-Mail pour validation par l'utilisateur.",
               },
               null,
               2,
@@ -237,7 +237,7 @@ export function createSortBoxMcpServer(deps: McpRuntimeDeps): McpServer {
           content: [
             {
               type: "text",
-              text: "Exécution automatique bloquée par sécurité : l'utilisateur doit vérifier l'aperçu Dry-Run et cliquer sur « Appliquer » dans l'application SortBox.",
+              text: "Exécution automatique bloquée par sécurité : l'utilisateur doit vérifier l'aperçu Dry-Run et cliquer sur « Appliquer » dans l'application IA For EveryOne — SortBox E-Mail.",
             },
           ],
         };

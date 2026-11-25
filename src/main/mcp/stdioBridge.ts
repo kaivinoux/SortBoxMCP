@@ -16,6 +16,8 @@ function findRuntimeInfo(): {
     path.join(process.env.USERPROFILE || process.cwd(), "AppData", "Roaming");
 
   const candidates = [
+    path.join(appData, "IA For EveryOne — SortBox E-Mail"),
+    path.join(appData, "ia-for-everyone-sortbox-email"),
     path.join(appData, "SortBox MCP"),
     path.join(appData, "sortbox-mcp"),
   ];
@@ -46,7 +48,9 @@ function findRuntimeInfo(): {
     }
   }
 
-  return { dbPath: path.join(appData, "SortBox MCP", "sortbox.sqlite") };
+  return {
+    dbPath: path.join(appData, "IA For EveryOne — SortBox E-Mail", "sortbox.sqlite"),
+  };
 }
 
 async function isHttpMcpReachable(port: number): Promise<boolean> {

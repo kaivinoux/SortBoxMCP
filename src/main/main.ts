@@ -45,8 +45,36 @@ const safeStorageCrypto: EncryptionProvider = {
 let mainWindow: BrowserWindow | null = null;
 const mcpActivityLog: McpActivityEvent[] = [];
 
+function migrateLegacyUserData(userDataDir: string): void {
+  const newDb = path.join(userDataDir, "sortbox.sqlite");
+  if (fs.existsSync(newDb)) return;
+
+  const appDataDir = app.getPath("appData");
+  for (const legacyName of ["SortBox MCP", "sortbox-mcp"]) {
+    const legacyDir = path.join(appDataDir, legacyName);
+    const legacyDb = path.join(legacyDir, "sortbox.sqlite");
+    if (!fs.existsSync(legacyDb)) continue;
+
+    fs.mkdirSync(userDataDir, { recursive: true });
+    for (const file of [
+      "sortbox.sqlite",
+      "sortbox.sqlite-wal",
+      "sortbox.sqlite-shm",
+      "vault.json",
+    ]) {
+      const src = path.join(legacyDir, file);
+      const dst = path.join(userDataDir, file);
+      if (fs.existsSync(src) && !fs.existsSync(dst)) {
+        fs.copyFileSync(src, dst);
+      }
+    }
+    break;
+  }
+}
+
 function createServices() {
   const userDataDir = app.getPath("userData");
+  migrateLegacyUserData(userDataDir);
   const db = new AppDatabase(path.join(userDataDir, "sortbox.sqlite"));
   const vault = new SecretVault(
     path.join(userDataDir, "vault.json"),
@@ -75,7 +103,7 @@ function createWindow(): void {
     height: 820,
     minWidth: 960,
     minHeight: 640,
-    title: "SortBox MCP",
+    title: "IA For EveryOne — SortBox E-Mail",
     backgroundColor: "#020617",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),

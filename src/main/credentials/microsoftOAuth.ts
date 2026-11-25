@@ -138,7 +138,7 @@ export async function runMicrosoftPkceLogin(params: {
         const expiresInSec = Number(tokenJson.expires_in ?? 3600);
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(
-          "<h2>Connexion réussie à SortBox MCP !</h2><p>Tu peux fermer cette fenêtre et revenir dans l'application.</p>",
+          "<h2>Connexion réussie à IA For EveryOne — SortBox E-Mail !</h2><p>Tu peux fermer cette fenêtre et revenir dans l'application.</p>",
         );
 
         finish(() =>

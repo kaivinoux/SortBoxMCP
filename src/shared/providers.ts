@@ -45,7 +45,7 @@ export const PROVIDER_PRESETS: Record<ProviderId, ProviderPreset> = {
     guideSteps: [
       "Active la validation en 2 étapes sur ton compte Google.",
       "Va dans Compte Google > Sécurité > Mots de passe des applications.",
-      "Crée un mot de passe pour « SortBox » et colle le code à 16 caractères ci-dessous.",
+      "Crée un mot de passe pour « SortBox E-Mail » et colle le code à 16 caractères ci-dessous.",
     ],
     guideUrl: "https://myaccount.google.com/apppasswords",
   },
@@ -137,7 +137,7 @@ export const PROVIDER_PRESETS: Record<ProviderId, ProviderPreset> = {
     guideTitle: "Connexion iCloud Mail",
     guideSteps: [
       "Connecte-toi sur account.apple.com > Connexion et sécurité.",
-      "Clique sur « Mots de passe pour application » et génère un code pour SortBox.",
+      "Clique sur « Mots de passe pour application » et génère un code pour SortBox E-Mail.",
       "Apple exige obligatoirement un mot de passe spécifique d'application (pas le mot de passe principal).",
     ],
     guideUrl: "https://account.apple.com/",

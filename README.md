@@ -1,10 +1,10 @@
-# SortBox MCP (Windows)
+# IA For EveryOne — SortBox E-Mail (Windows)
 
 Application de bureau Windows **100 % locale** pour connecter n'importe quelle boîte mail (*Orange, Gmail, Outlook / M365, Free, SFR, La Poste, OVH, iCloud, Yahoo, IMAP*), nettoyer et trier ses messages en toute sécurité **sans aucune IA requise**, tout en offrant un mode **IA Copier-Coller / Ollama / API** et un **serveur MCP intégré**.
 
 ## Téléchargement rapide (Windows)
 
-Télécharge l'archive `SortBox MCP-0.1.0-win.zip` depuis la page [Releases](https://github.com/kaivinoux/SortBoxMCP/releases), extrais le dossier et lance `SortBox MCP.exe`.
+Télécharge l'archive `IA-For-EveryOne-SortBox-Email-0.1.1-win.zip` depuis la page [Releases](https://github.com/kaivinoux/SortBoxMCP/releases), extrais le dossier et lance `IA For EveryOne — SortBox E-Mail.exe`.
 
 > Comme l'exécutable n'est pas encore signé par un certificat commercial, Windows Defender SmartScreen peut afficher un avertissement au premier lancement (*Informations complémentaires → Exécuter quand même*).
 
@@ -46,4 +46,4 @@ npm.cmd start
 npm.cmd run dist:win
 ```
 
-> Note : la cible `zip` produit `release/win-unpacked/SortBox MCP.exe` et `release/SortBox MCP-0.1.0-win.zip` sans déclencher le blocage Windows sur les binaires temporaires NSIS non signés. Pour générer un `Setup.exe` NSIS (notamment avec certificat de signature), lance `.\node_modules\.bin\electron-builder.cmd --win nsis`.
+> Note : la cible `zip` produit `release/app/win-unpacked/IA For EveryOne — SortBox E-Mail.exe` et `release/app/IA-For-EveryOne-SortBox-Email-0.1.1-win.zip` sans déclencher le blocage Windows sur les binaires temporaires NSIS non signés. Pour générer un `Setup.exe` NSIS (notamment avec certificat de signature), lance `.\node_modules\.bin\electron-builder.cmd --win nsis`.
