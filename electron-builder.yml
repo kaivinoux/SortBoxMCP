@@ -1,0 +1,14 @@
+appId: com.tardis.sortboxmcp
+productName: SortBox MCP
+directories:
+  output: release
+files:
+  - dist/**
+  - dist-electron/**
+  - package.json
+asar: true
+win:
+  target:
+    - target: zip
+      arch:
+        - x64
