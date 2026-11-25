@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { detectProviderFromEmail } from "../src/shared/providers.js";
+import {
+  PROVIDER_PRESETS,
+  detectProviderFromEmail,
+} from "../src/shared/providers.js";
 
 describe("detectProviderFromEmail", () => {
   it("detects Orange and Wanadoo presets", () => {
@@ -29,5 +32,13 @@ describe("detectProviderFromEmail", () => {
     const custom = detectProviderFromEmail("contact@mon-domaine.fr");
     expect(custom.id).toBe("custom");
     expect(custom.imapHost).toBe("imap.mon-domaine.fr");
+  });
+
+  it("provides direct https guideUrl and label for every built-in provider", () => {
+    for (const preset of Object.values(PROVIDER_PRESETS)) {
+      if (preset.id === "custom") continue;
+      expect(preset.guideUrl).toMatch(/^https:\/\//);
+      expect(preset.guideLinkLabel?.length).toBeGreaterThan(3);
+    }
   });
 });

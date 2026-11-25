@@ -36,7 +36,7 @@ function recordActivity(
 export function createSortBoxMcpServer(deps: McpRuntimeDeps): McpServer {
   const server = new McpServer({
     name: "sortbox-mcp",
-    version: "0.1.1",
+    version: "0.1.2",
   });
 
   server.registerTool(

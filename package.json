@@ -1,6 +1,6 @@
 {
   "name": "ia-for-everyone-sortbox-email",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "IA For EveryOne — SortBox E-Mail : application Windows locale de tri email universel (sans IA requise, IA optionnelle et serveur MCP intégré).",
   "author": "kaivinoux",
   "license": "MIT",

@@ -12,6 +12,9 @@ export interface ProviderPreset {
   guideTitle: string;
   guideSteps: string[];
   guideUrl?: string;
+  guideLinkLabel?: string;
+  secondaryUrl?: string;
+  secondaryLinkLabel?: string;
 }
 
 export const PROVIDER_PRESETS: Record<ProviderId, ProviderPreset> = {
@@ -26,11 +29,14 @@ export const PROVIDER_PRESETS: Record<ProviderId, ProviderPreset> = {
     supportedAuths: ["imap_password"],
     guideTitle: "Connexion Orange Mail (IMAP)",
     guideSteps: [
-      "Ouvre ton espace client Orange (webmail > Paramètres > Sécurité).",
-      "Active l'accès IMAP/POP si ce n'est pas déjà fait.",
-      "Génère un mot de passe d'application dédié (recommandé) ou utilise ton mot de passe messagerie.",
+      "Connecte-toi à ton Espace client Orange > Mon compte > Connexion et Sécurité.",
+      "Génère un « mot de passe pour logiciels et applications de messagerie tiers ».",
+      "Vérifie aussi dans les paramètres du webmail Orange que l'accès IMAP/POP est activé.",
     ],
-    guideUrl: "https://assistance.orange.fr/",
+    guideUrl: "https://espace-client.orange.fr",
+    guideLinkLabel: "Ouvrir l'Espace client Orange",
+    secondaryUrl: "https://messagerie.orange.fr",
+    secondaryLinkLabel: "Webmail Orange",
   },
   gmail: {
     id: "gmail",
@@ -43,11 +49,14 @@ export const PROVIDER_PRESETS: Record<ProviderId, ProviderPreset> = {
     supportedAuths: ["imap_password", "gmail_oauth_byo"],
     guideTitle: "Connexion Gmail sans audit Google",
     guideSteps: [
-      "Active la validation en 2 étapes sur ton compte Google.",
-      "Va dans Compte Google > Sécurité > Mots de passe des applications.",
+      "Active la validation en 2 étapes sur ton compte Google si ce n'est pas déjà fait.",
+      "Ouvre la page « Mots de passe des applications » ci-contre.",
       "Crée un mot de passe pour « SortBox E-Mail » et colle le code à 16 caractères ci-dessous.",
     ],
     guideUrl: "https://myaccount.google.com/apppasswords",
+    guideLinkLabel: "Créer un mot de passe d'application",
+    secondaryUrl: "https://myaccount.google.com/security",
+    secondaryLinkLabel: "Sécurité Google",
   },
   microsoft: {
     id: "microsoft",
@@ -60,10 +69,13 @@ export const PROVIDER_PRESETS: Record<ProviderId, ProviderPreset> = {
     supportedAuths: ["microsoft_oauth", "imap_password"],
     guideTitle: "Connexion Microsoft OAuth2 (1 clic)",
     guideSteps: [
-      "Clique sur « Connecter avec Microsoft » pour ouvrir la fenêtre d'autorisation officielle.",
-      "Les comptes Microsoft personnels n'acceptent plus le mot de passe classique en IMAP : OAuth2 est recommandé.",
-      "Tu peux aussi utiliser un Client ID Azure personnalisé dans les paramètres.",
+      "Clique sur « Connecter avec Microsoft » (OAuth2 recommandé pour Outlook / Hotmail / Live).",
+      "Si tu passes par le mode mot de passe IMAP, génère un mot de passe d'application depuis les options de sécurité avancées Microsoft.",
     ],
+    guideUrl: "https://account.live.com/proofs/manage",
+    guideLinkLabel: "Sécurité Microsoft (mots de passe d'app)",
+    secondaryUrl: "https://account.microsoft.com/security",
+    secondaryLinkLabel: "Compte Microsoft",
   },
   free: {
     id: "free",
@@ -76,9 +88,13 @@ export const PROVIDER_PRESETS: Record<ProviderId, ProviderPreset> = {
     supportedAuths: ["imap_password"],
     guideTitle: "Connexion Free Mail",
     guideSteps: [
-      "Utilise ton adresse @free.fr et ton mot de passe messagerie Free.",
-      "Serveur configuré automatiquement : imap.free.fr (port 993 SSL).",
+      "Utilise ton adresse @free.fr et le mot de passe spécifique de ta boîte mail Free.",
+      "Pour créer ou réinitialiser ce mot de passe, ouvre ton Espace Abonné Free.",
     ],
+    guideUrl: "https://moncompte.free.fr",
+    guideLinkLabel: "Ouvrir l'Espace Abonné Free",
+    secondaryUrl: "https://webmail.free.fr",
+    secondaryLinkLabel: "Webmail Free",
   },
   sfr: {
     id: "sfr",
@@ -91,9 +107,13 @@ export const PROVIDER_PRESETS: Record<ProviderId, ProviderPreset> = {
     supportedAuths: ["imap_password"],
     guideTitle: "Connexion SFR Mail",
     guideSteps: [
-      "Saisis ton adresse SFR et ton mot de passe habituel.",
-      "Vérifie dans les options SFR Mail que l'accès IMAP est activé.",
+      "Saisis ton adresse SFR et ton mot de passe de messagerie habituel (IMAP activé par défaut).",
+      "En cas de doute sur ton mot de passe, teste d'abord la connexion sur la messagerie SFR.",
     ],
+    guideUrl: "https://messagerie.sfr.fr",
+    guideLinkLabel: "Ouvrir la messagerie SFR",
+    secondaryUrl: "https://www.sfr.fr/mon-espace-client",
+    secondaryLinkLabel: "Espace client SFR",
   },
   laposte: {
     id: "laposte",
@@ -106,9 +126,11 @@ export const PROVIDER_PRESETS: Record<ProviderId, ProviderPreset> = {
     supportedAuths: ["imap_password"],
     guideTitle: "Connexion LaPoste.net",
     guideSteps: [
-      "Vérifie dans Webmail La Poste > Paramètres > Accès POP/IMAP que l'IMAP est activé.",
-      "Génère un mot de passe d'application si l'authentification renforcée est active.",
+      "Connecte-toi sur LaPoste.net pour vérifier que la boîte n'est plus temporaire et que le mot de passe fonctionne.",
+      "Serveur configuré : imap.laposte.net (port 993 SSL/TLS).",
     ],
+    guideUrl: "https://www.laposte.net",
+    guideLinkLabel: "Ouvrir LaPoste.net",
   },
   ovh: {
     id: "ovh",
@@ -122,8 +144,12 @@ export const PROVIDER_PRESETS: Record<ProviderId, ProviderPreset> = {
     guideTitle: "Connexion OVH Mail",
     guideSteps: [
       "Serveur par défaut OVH : ssl0.ovh.net (port 993 SSL).",
-      "Si tu es sur OVH Exchange, utilise l'hôte ex*.mail.ovh.net fourni dans ton espace client.",
+      "Pour gérer ou modifier le mot de passe d'une boîte, ouvre l'Espace client OVHcloud > Web Cloud > E-mails.",
     ],
+    guideUrl: "https://www.ovh.com/manager/",
+    guideLinkLabel: "Ouvrir l'Espace client OVHcloud",
+    secondaryUrl: "https://www.ovhcloud.com/fr/webmail/",
+    secondaryLinkLabel: "Webmail OVH",
   },
   icloud: {
     id: "icloud",
@@ -136,11 +162,12 @@ export const PROVIDER_PRESETS: Record<ProviderId, ProviderPreset> = {
     supportedAuths: ["imap_password"],
     guideTitle: "Connexion iCloud Mail",
     guideSteps: [
-      "Connecte-toi sur account.apple.com > Connexion et sécurité.",
+      "Connecte-toi sur ton compte Apple > Connexion et sécurité.",
       "Clique sur « Mots de passe pour application » et génère un code pour SortBox E-Mail.",
       "Apple exige obligatoirement un mot de passe spécifique d'application (pas le mot de passe principal).",
     ],
     guideUrl: "https://account.apple.com/",
+    guideLinkLabel: "Ouvrir le compte Apple",
   },
   yahoo: {
     id: "yahoo",
@@ -153,9 +180,11 @@ export const PROVIDER_PRESETS: Record<ProviderId, ProviderPreset> = {
     supportedAuths: ["imap_password"],
     guideTitle: "Connexion Yahoo Mail",
     guideSteps: [
-      "Va dans Sécurité du compte Yahoo > Générer un mot de passe d'application.",
-      "Colle ce mot de passe dédié ci-dessous.",
+      "Ouvre la page Sécurité du compte Yahoo ci-contre.",
+      "Descends sur « Générer un mot de passe d'application » puis colle ce code ci-dessous.",
     ],
+    guideUrl: "https://login.yahoo.com/account/security",
+    guideLinkLabel: "Ouvrir la sécurité Yahoo",
   },
   custom: {
     id: "custom",

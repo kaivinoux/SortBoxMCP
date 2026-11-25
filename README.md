@@ -4,7 +4,7 @@ Application de bureau Windows **100 % locale** pour connecter n'importe quelle b
 
 ## Téléchargement rapide (Windows)
 
-Télécharge l'archive `IA-For-EveryOne-SortBox-Email-0.1.1-win.zip` depuis la page [Releases](https://github.com/kaivinoux/SortBoxMCP/releases), extrais le dossier et lance `IA For EveryOne — SortBox E-Mail.exe`.
+Télécharge l'archive `IA-For-EveryOne-SortBox-Email-0.1.2-win.zip` depuis la page [Releases](https://github.com/kaivinoux/SortBoxMCP/releases), extrais le dossier et lance `IA For EveryOne — SortBox E-Mail.exe`.
 
 > Comme l'exécutable n'est pas encore signé par un certificat commercial, Windows Defender SmartScreen peut afficher un avertissement au premier lancement (*Informations complémentaires → Exécuter quand même*).
 
@@ -46,4 +46,4 @@ npm.cmd start
 npm.cmd run dist:win
 ```
 
-> Note : la cible `zip` produit `release/app/win-unpacked/IA For EveryOne — SortBox E-Mail.exe` et `release/app/IA-For-EveryOne-SortBox-Email-0.1.1-win.zip` sans déclencher le blocage Windows sur les binaires temporaires NSIS non signés. Pour générer un `Setup.exe` NSIS (notamment avec certificat de signature), lance `.\node_modules\.bin\electron-builder.cmd --win nsis`.
+> Note : la cible `zip` produit `release/v0.1.2/win-unpacked/IA For EveryOne — SortBox E-Mail.exe` et `release/v0.1.2/IA-For-EveryOne-SortBox-Email-0.1.2-win.zip` sans déclencher le blocage Windows sur les binaires temporaires NSIS non signés. Pour générer un `Setup.exe` NSIS (notamment avec certificat de signature), lance `.\node_modules\.bin\electron-builder.cmd --win nsis`.

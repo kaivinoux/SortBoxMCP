@@ -191,23 +191,37 @@ export function AddAccountModal({
           </div>
 
           {preset && (
-            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-              <div className="flex items-center justify-between gap-2">
+            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-sky-300">
                   Fournisseur détecté : {preset.name}
                 </span>
-                {preset.guideUrl && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      window.sortbox.app.openExternal(preset.guideUrl!)
-                    }
-                    className="text-xs text-sky-400 hover:underline flex items-center gap-1 cursor-pointer"
-                  >
-                    Ouvrir l&apos;aide
-                    <ExternalLink className="w-3 h-3" />
-                  </button>
-                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  {preset.secondaryUrl && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        window.sortbox.app.openExternal(preset.secondaryUrl!)
+                      }
+                      className="text-xs px-2.5 py-1 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 flex items-center gap-1 cursor-pointer"
+                    >
+                      {preset.secondaryLinkLabel || "Webmail"}
+                      <ExternalLink className="w-3 h-3" />
+                    </button>
+                  )}
+                  {preset.guideUrl && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        window.sortbox.app.openExternal(preset.guideUrl!)
+                      }
+                      className="text-xs px-2.5 py-1 rounded-md bg-sky-500/15 border border-sky-500/40 text-sky-300 hover:bg-sky-500/25 flex items-center gap-1 cursor-pointer"
+                    >
+                      {preset.guideLinkLabel || "Ouvrir l'aide"}
+                      <ExternalLink className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
               </div>
               <ol className="text-xs text-slate-300 list-decimal list-inside space-y-1">
                 {preset.guideSteps.map((step, idx) => (
