@@ -6,7 +6,7 @@ Application de bureau Windows **100 % locale** pour connecter n'importe quelle b
 
 Télécharge l'archive `IA-For-EveryOne-SortBox-Email-0.1.3-win.zip` depuis la page [Releases](https://github.com/kaivinoux/SortBoxMCP/releases), extrais le dossier et lance `IA For EveryOne — SortBox E-Mail.exe`.
 
-> Comme l'exécutable n'est pas encore signé par un certificat commercial, Windows Defender SmartScreen peut afficher un avertissement au premier lancement (*Informations complémentaires → Exécuter quand même*).
+> Note : tant que la signature numérique n'est pas activée, Windows Defender SmartScreen ou Smart App Control peuvent bloquer l'exécutable au premier lancement. Pour activer la signature gratuite Open Source via GitHub Actions + SignPath Foundation, voir [SIGNING.md](SIGNING.md).
 
 ## Fonctionnalités
 

@@ -98,12 +98,14 @@ function pushMcpActivity(ev: McpActivityEvent): void {
 }
 
 function createWindow(): void {
+  const iconPath = path.join(__dirname, "../../build/icon.png");
   mainWindow = new BrowserWindow({
     width: 1260,
     height: 820,
     minWidth: 960,
     minHeight: 640,
     title: "IA For EveryOne — SortBox E-Mail",
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
     backgroundColor: "#020617",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),

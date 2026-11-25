@@ -2,14 +2,22 @@ appId: com.iaforeveryone.sortboxemail
 productName: IA For EveryOne — SortBox E-Mail
 directories:
   output: release/v0.1.3
+  buildResources: build
 files:
   - dist/**
   - dist-electron/**
+  - build/icon.png
   - package.json
 asar: true
 win:
+  icon: build/icon.ico
   target:
     - target: zip
       arch:
         - x64
   artifactName: IA-For-EveryOne-SortBox-Email-${version}-win.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true

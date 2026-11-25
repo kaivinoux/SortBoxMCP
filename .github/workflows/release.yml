@@ -1,0 +1,197 @@
+name: Release Windows
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-unpacked:
+    name: Build Windows App (Unpacked)
+    runs-on: windows-latest
+    outputs:
+      unpacked-exe-artifact-id: ${{ steps.upload-unpacked-exe.outputs.artifact-id }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and run tests
+        run: |
+          npm run build
+          npx tsc --noEmit
+          npm test
+
+      - name: Build unpacked Windows binary
+        run: npx electron-builder --win dir --publish never -c.directories.output=release/ci
+        env:
+          CSC_LINK: ""
+          CSC_KEY_PASSWORD: ""
+
+      - name: Upload unpacked directory
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-unpacked
+          path: release/ci/win-unpacked
+          retention-days: 1
+
+      - name: Upload app executable for SignPath
+        id: upload-unpacked-exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-unpacked-exe
+          path: release/ci/win-unpacked/*.exe
+          retention-days: 1
+
+  sign-unpacked:
+    name: Sign App Executable with SignPath
+    needs: build-unpacked
+    if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Submit app executable to SignPath
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'sortbox-email' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          github-artifact-id: ${{ needs.build-unpacked.outputs.unpacked-exe-artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-unpacked
+
+      - name: Upload signed app executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-unpacked-signed
+          path: signed-unpacked/*.exe
+          retention-days: 1
+
+  package-installer:
+    name: Package NSIS Installer & Portable Zip
+    needs: [build-unpacked, sign-unpacked]
+    if: ${{ !cancelled() && needs.build-unpacked.result == 'success' && (needs.sign-unpacked.result == 'success' || needs.sign-unpacked.result == 'skipped') }}
+    runs-on: windows-latest
+    outputs:
+      nsis-artifact-id: ${{ steps.upload-nsis.outputs.artifact-id }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download unpacked directory
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-unpacked
+          path: prepackaged-app
+
+      - name: Download signed app executable
+        if: ${{ needs.sign-unpacked.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-unpacked-signed
+          path: signed-overlay
+
+      - name: Replace inner executable with signed version
+        if: ${{ needs.sign-unpacked.result == 'success' }}
+        shell: pwsh
+        run: Copy-Item -Path "signed-overlay\*.exe" -Destination "prepackaged-app\" -Force
+
+      - name: Build NSIS installer and zip from prepackaged app
+        run: npx electron-builder --win nsis zip --prepackaged prepackaged-app --publish never -c.directories.output=release/final
+        env:
+          CSC_LINK: ""
+          CSC_KEY_PASSWORD: ""
+
+      - name: Upload NSIS installer artifact
+        id: upload-nsis
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-nsis-installer
+          path: release/final/*.exe
+          retention-days: 1
+
+      - name: Upload portable zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-portable-zip
+          path: release/final/*.zip
+          retention-days: 1
+
+  sign-installer:
+    name: Sign NSIS Installer with SignPath
+    needs: package-installer
+    if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Submit NSIS installer to SignPath
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'sortbox-email' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          github-artifact-id: ${{ needs.package-installer.outputs.nsis-artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-nsis
+
+      - name: Upload signed NSIS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-nsis-installer-signed
+          path: signed-nsis/*.exe
+          retention-days: 1
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [package-installer, sign-installer]
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.package-installer.result == 'success' && (needs.sign-installer.result == 'success' || needs.sign-installer.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download signed NSIS installer
+        if: ${{ needs.sign-installer.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-nsis-installer-signed
+          path: release-assets
+
+      - name: Download unsigned NSIS installer
+        if: ${{ needs.sign-installer.result != 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-nsis-installer
+          path: release-assets
+
+      - name: Download portable zip
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-portable-zip
+          path: release-assets
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
