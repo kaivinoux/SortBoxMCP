@@ -193,5 +193,7 @@ jobs:
         with:
           files: release-assets/*
           generate_release_notes: true
+          body: |
+            Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

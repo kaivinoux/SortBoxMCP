@@ -4,9 +4,9 @@ Application de bureau Windows **100 % locale** pour connecter n'importe quelle b
 
 ## Téléchargement rapide (Windows)
 
-Télécharge l'archive `IA-For-EveryOne-SortBox-Email-0.1.3-win.zip` depuis la page [Releases](https://github.com/kaivinoux/SortBoxMCP/releases), extrais le dossier et lance `IA For EveryOne — SortBox E-Mail.exe`.
+Télécharge la dernière version depuis la page [Releases](https://github.com/kaivinoux/SortBoxMCP/releases), extrais le dossier (ou lance l'installeur Windows) et démarre `IA For EveryOne — SortBox E-Mail.exe`.
 
-> Note : tant que la signature numérique n'est pas activée, Windows Defender SmartScreen ou Smart App Control peuvent bloquer l'exécutable au premier lancement. Pour activer la signature gratuite Open Source via GitHub Actions + SignPath Foundation, voir [SIGNING.md](SIGNING.md).
+> **Signature de code :** Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). *(Intégration en cours d'activation — voir [SIGNING.md](SIGNING.md) ; tant que la signature n'est pas encore active sur une release, Windows Defender SmartScreen ou Smart App Control peuvent bloquer l'exécutable).*
 
 ## Fonctionnalités
 
@@ -47,3 +47,16 @@ npm.cmd run dist:win
 ```
 
 > Note : la cible `zip` produit `release/v0.1.3/win-unpacked/IA For EveryOne — SortBox E-Mail.exe` et `release/v0.1.3/IA-For-EveryOne-SortBox-Email-0.1.3-win.zip` sans déclencher le blocage Windows sur les binaires temporaires NSIS non signés. Pour générer un `Setup.exe` NSIS (notamment avec certificat de signature), lance `.\node_modules\.bin\electron-builder.cmd --win nsis`.
+
+## Code Signing Policy
+
+Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+- **Maintainers & Approvers:** Only the repository owner (`kaivinoux`) can trigger release tags and approve signing requests.
+- **Build Integrity:** Release binaries are built exclusively via GitHub Actions ([release.yml](.github/workflows/release.yml)) directly from tagged commits on `main`. See [SIGNING.md](SIGNING.md).
+
+## Privacy Policy
+
+- **100 % Local Execution:** `IA For EveryOne — SortBox E-Mail` runs locally on your Windows device. No telemetry, analytics, or user email data is ever sent to the developer or any third-party backend operated by the project.
+- **Credential Security:** Mail passwords and OAuth tokens are encrypted locally using Windows DPAPI (`electron.safeStorage`) and never leave your machine except to authenticate directly with the email provider you configured.
+- **Optional AI Features:** AI prompts are only sent if you explicitly choose to copy-paste an anonymized sender summary or configure your own local Ollama instance or personal API key.
