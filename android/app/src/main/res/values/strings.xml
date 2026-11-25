@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SortBox E-Mail</string>
+    <string name="title_activity_main">SortBox E-Mail</string>
+    <string name="package_name">com.iaforeveryone.sortboxemail</string>
+    <string name="custom_url_scheme">com.iaforeveryone.sortboxemail</string>
+</resources>

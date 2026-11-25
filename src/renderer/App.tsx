@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 import React, { useCallback, useEffect, useState } from "react";
 import { Cpu, Layers, ListFilter, MailPlus, Sparkles } from "lucide-react";
 import type {
@@ -138,13 +139,14 @@ export default function App() {
     };
   }, [refreshData]);
 
+  const isMobileNative = Capacitor.isNativePlatform();
   const pendingMoveCount = plans.reduce(
     (sum, p) => sum + p.moves.filter((m) => m.checked).length,
     0,
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 lg:p-6">
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-3 sm:p-4 lg:p-6 pb-24 lg:pb-6">
       <div className="max-w-7xl mx-auto space-y-4">
         {/* Top Header */}
         <header className="bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 flex flex-wrap items-center justify-between gap-4">
@@ -227,9 +229,9 @@ export default function App() {
 
         {/* Main Body */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          {/* Sidebar */}
+          {/* Sidebar (Desktop) */}
           <aside className="lg:col-span-3 space-y-4">
-            <nav className="bg-slate-900 border border-slate-800 rounded-2xl p-2 space-y-1 text-xs font-medium">
+            <nav className="hidden lg:block bg-slate-900 border border-slate-800 rounded-2xl p-2 space-y-1 text-xs font-medium">
               <button
                 type="button"
                 onClick={() => setTab("triage")}
@@ -306,11 +308,11 @@ export default function App() {
             </nav>
 
             {/* Local Cache Stats */}
-            <section className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <section className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 space-y-2.5">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                 Audit SQLite Local
               </h2>
-              <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 gap-2 text-xs">
                 <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
                   <div className="text-slate-400">Indexés</div>
                   <div className="text-base font-semibold tabular-nums mt-0.5">
@@ -459,6 +461,7 @@ export default function App() {
                 settings={settings}
                 mcpStatus={mcpStatus}
                 mcpActivity={mcpActivity}
+                isMobileNative={isMobileNative}
                 onSaveSettings={async (partial) => {
                   const updated = await window.sortbox.settings.save(partial);
                   setSettings(updated);
@@ -488,6 +491,50 @@ export default function App() {
           await refreshData({ ...queryOpts, accountId: account.id });
         }}
       />
+
+      {/* Mobile Bottom Navigation Bar */}
+      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 grid grid-cols-4 text-[11px] font-medium">
+        <button
+          type="button"
+          onClick={() => setTab("triage")}
+          className={`py-2.5 flex flex-col items-center gap-1 cursor-pointer ${
+            tab === "triage" ? "text-sky-400 font-semibold" : "text-slate-400"
+          }`}
+        >
+          <ListFilter className="w-4 h-4" />
+          <span>Tri</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("plan")}
+          className={`py-2.5 flex flex-col items-center gap-1 relative cursor-pointer ${
+            tab === "plan" ? "text-sky-400 font-semibold" : "text-slate-400"
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          <span>Plan{pendingMoveCount > 0 ? ` (${pendingMoveCount})` : ""}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("ai")}
+          className={`py-2.5 flex flex-col items-center gap-1 cursor-pointer ${
+            tab === "ai" ? "text-sky-400 font-semibold" : "text-slate-400"
+          }`}
+        >
+          <Sparkles className="w-4 h-4" />
+          <span>IA</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("mcp")}
+          className={`py-2.5 flex flex-col items-center gap-1 cursor-pointer ${
+            tab === "mcp" ? "text-sky-400 font-semibold" : "text-slate-400"
+          }`}
+        >
+          <Cpu className="w-4 h-4" />
+          <span>{isMobileNative ? "Réglages" : "MCP"}</span>
+        </button>
+      </nav>
     </div>
   );
 }

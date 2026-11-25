@@ -2,17 +2,17 @@
 
 **Last updated:** November 25, 2026
 
-`IA For EveryOne — SortBox E-Mail` is an open-source, local-first Windows desktop application. **The project and its maintainer do not operate any backend servers and do not collect, store, track, or transmit any user data.**
+`IA For EveryOne — SortBox E-Mail` is an open-source, local-first application for Windows and Android. **The project and its maintainer do not operate any backend servers and do not collect, store, track, or transmit any user data.**
 
-## 1. Data Stored Locally on Your Computer
+## 1. Data Stored Locally on Your Device
 
-All application data stays exclusively inside your local Windows user profile (`%APPDATA%\IA For EveryOne — SortBox E-Mail\`):
+All application data stays exclusively on your own device (`%APPDATA%\IA For EveryOne — SortBox E-Mail\` on Windows, or app-private internal storage on Android with `android:allowBackup="false"`):
 
-- **Encrypted Credentials (`vault.json`):** Mail app passwords, OAuth2 tokens, and optional personal AI API keys are encrypted at rest using Windows DPAPI (`electron.safeStorage`), bound to your Windows user account.
-- **Local Email Header Cache (`sortbox.sqlite`):** To provide fast sender grouping and offline search (`FTS5`), the application indexes email headers (`From`, `To`, `Subject`, `Date`, `Size`, flags, and `List-Unsubscribe`) locally. Full email bodies are not downloaded.
-- **Runtime Configuration (`runtime.json`):** Stores only the local loopback MCP port (`127.0.0.1`) when you enable the optional MCP server.
+- **Encrypted Credentials:** Mail app passwords, OAuth2 tokens, and optional personal AI API keys are encrypted at rest using Windows DPAPI (`electron.safeStorage`) on Windows or hardware-backed **Android Keystore (`AES-256-GCM`)** on Android.
+- **Local Email Header Cache:** To provide fast sender grouping and offline search (`SQLite` / `FTS5`), the application indexes email headers (`From`, `To`, `Subject`, `Date`, `Size`, flags, and `List-Unsubscribe`) locally. Full email bodies are not downloaded.
+- **Runtime Configuration (`runtime.json`, Windows only):** Stores only the local loopback MCP port (`127.0.0.1`) when you enable the optional PC MCP server.
 
-You can delete all locally stored data at any time by removing your account in the app or deleting the folder above.
+You can delete all locally stored data at any time by removing your account in the app, uninstalling the Android app, or deleting the folder above on Windows.
 
 ## 2. Network Connections
 

@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 import React, { useEffect, useState } from "react";
 import { ExternalLink, KeyRound, Mail, ShieldCheck, X } from "lucide-react";
 import type { ProviderPreset } from "../../shared/providers.js";
@@ -144,7 +145,7 @@ export function AddAccountModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="w-full max-w-xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
+      <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
           <div className="flex items-center gap-2.5">
             <Mail className="w-5 h-5 text-sky-400" />
@@ -288,7 +289,8 @@ export function AddAccountModal({
               <div>
                 <label className="block text-xs text-slate-400 mb-1 flex items-center gap-1.5">
                   <KeyRound className="w-3.5 h-3.5 text-emerald-400" />
-                  Mot de passe d&apos;application ou IMAP (chiffré via Windows DPAPI)
+                  Mot de passe d&apos;application ou IMAP (chiffré via{" "}
+                  {Capacitor.isNativePlatform() ? "Android Keystore" : "Windows DPAPI"})
                 </label>
                 <input
                   type="password"

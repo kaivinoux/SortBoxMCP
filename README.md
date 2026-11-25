@@ -1,12 +1,19 @@
-# IA For EveryOne — SortBox E-Mail (Windows)
+# IA For EveryOne — SortBox E-Mail (Windows & Android)
 
-Application de bureau Windows **100 % locale** pour connecter n'importe quelle boîte mail (*Orange, Gmail, Outlook / M365, Free, SFR, La Poste, OVH, iCloud, Yahoo, IMAP*), nettoyer et trier ses messages en toute sécurité **sans aucune IA requise**, tout en offrant un mode **IA Copier-Coller / Ollama / API** et un **serveur MCP intégré**.
+Application **100 % locale** (Windows et téléphone Android) pour connecter n'importe quelle boîte mail (*Orange, Gmail, Outlook / M365, Free, SFR, La Poste, OVH, iCloud, Yahoo, IMAP*), nettoyer et trier ses messages en toute sécurité **sans aucune IA requise**, tout en offrant un mode **IA Copier-Coller / Ollama / API** (et un **serveur MCP intégré** sur Windows).
 
 ## Téléchargement rapide (Windows)
 
 Télécharge la dernière version depuis la page [Releases](https://github.com/kaivinoux/SortBoxMCP/releases), extrais le dossier (ou lance l'installeur Windows) et démarre `IA For EveryOne — SortBox E-Mail.exe`.
 
 > **Signature de code :** Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). *(Intégration en cours d'activation — voir [SIGNING.md](SIGNING.md) ; tant que la signature n'est pas encore active sur une release, Windows Defender SmartScreen ou Smart App Control peuvent bloquer l'exécutable).*
+
+## Téléchargement rapide (Android `.apk`)
+
+Télécharge le fichier `IA-For-EveryOne-SortBox-Email-Android.apk` depuis la page [Releases](https://github.com/kaivinoux/SortBoxMCP/releases) (tag `android-v*`) ou depuis les artefacts du workflow [Android APK](.github/workflows/android.yml), puis ouvre le fichier `.apk` sur ton téléphone Android (autorise l'installation d'applications inconnues si Android le demande).
+
+- **100 % local sur le téléphone :** secrets chiffrés via **Android Keystore (AES-256-GCM)**, index SQLite local sur l'appareil, sauvegarde cloud Android désactivée (`allowBackup=false`).
+- **Mêmes outils de tri :** connexion directe IMAP (Orange, Gmail App Password, Free, SFR, La Poste, OVH, iCloud, Yahoo, Outlook OAuth2 si `clientId` configuré), groupement par expéditeur sans IA, aperçu Dry-Run, exécution par vagues, Undo et mode IA Copier-Coller / API. *(Le serveur MCP local reste spécifique à la version PC Windows.)*
 
 ## Fonctionnalités
 
@@ -57,7 +64,7 @@ Free code signing provided by [SignPath.io](https://signpath.io/), certificate b
 
 ## Privacy Policy
 
-- **100 % Local Execution:** `IA For EveryOne — SortBox E-Mail` runs locally on your Windows device. No telemetry, analytics, or user email data is ever sent to the developer or any third-party backend operated by the project.
-- **Credential Security:** Mail passwords and OAuth tokens are encrypted locally using Windows DPAPI (`electron.safeStorage`) and never leave your machine except to authenticate directly with the email provider you configured.
+- **100 % Local Execution:** `IA For EveryOne — SortBox E-Mail` runs locally on your Windows or Android device. No telemetry, analytics, or user email data is ever sent to the developer or any third-party backend operated by the project.
+- **Credential Security:** Mail passwords and OAuth tokens are encrypted locally using Windows DPAPI (`electron.safeStorage`) on Windows or Android Keystore (`AES-256-GCM`) on Android, and never leave your device except to authenticate directly with the email provider you configured.
 - **Optional AI Features:** AI prompts are only sent if you explicitly choose to copy-paste an anonymized sender summary or configure your own local Ollama instance or personal API key.
 - **Full Policy:** [PRIVACY.md](PRIVACY.md)

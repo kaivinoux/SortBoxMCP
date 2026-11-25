@@ -96,22 +96,30 @@ const api = {
     onSyncProgress: (cb: (ev: SyncProgressEvent) => void) => {
       const listener = (_: unknown, ev: SyncProgressEvent) => cb(ev);
       ipcRenderer.on("sync:progress", listener);
-      return () => ipcRenderer.removeListener("sync:progress", listener);
+      return (): void => {
+        ipcRenderer.removeListener("sync:progress", listener);
+      };
     },
     onPlanProgress: (cb: (ev: PlanApplyProgressEvent) => void) => {
       const listener = (_: unknown, ev: PlanApplyProgressEvent) => cb(ev);
       ipcRenderer.on("plan:progress", listener);
-      return () => ipcRenderer.removeListener("plan:progress", listener);
+      return (): void => {
+        ipcRenderer.removeListener("plan:progress", listener);
+      };
     },
     onMcpActivity: (cb: (ev: McpActivityEvent) => void) => {
       const listener = (_: unknown, ev: McpActivityEvent) => cb(ev);
       ipcRenderer.on("mcp:activity", listener);
-      return () => ipcRenderer.removeListener("mcp:activity", listener);
+      return (): void => {
+        ipcRenderer.removeListener("mcp:activity", listener);
+      };
     },
     onPlanUpdated: (cb: (plan: SortPlan) => void) => {
       const listener = (_: unknown, plan: SortPlan) => cb(plan);
       ipcRenderer.on("plans:updated", listener);
-      return () => ipcRenderer.removeListener("plans:updated", listener);
+      return (): void => {
+        ipcRenderer.removeListener("plans:updated", listener);
+      };
     },
   },
 };

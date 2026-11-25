@@ -1,0 +1,10 @@
+-keep class com.sun.mail.** { *; }
+-keep class javax.mail.** { *; }
+-keep class * implements javax.mail.Provider { *; }
+-keep class * implements java.io.Serializable { *; }
+-keep class com.sun.mail.handlers.** { *; }
+-keep class com.sun.mail.imap.** { *; }
+-keep class com.iaforeveryone.sortboxemail.** { *; }
+-dontwarn javax.crypto.**
+-dontwarn com.sun.mail.handlers.*
+-dontwarn java.beans.*
