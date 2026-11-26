@@ -151,9 +151,11 @@ export default function App() {
         {/* Top Header */}
         <header className="bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-sky-500 text-slate-950 font-bold flex items-center justify-center text-sm">
-              IA
-            </div>
+            <img
+              src="./icon.png"
+              alt="IA For EveryOne — SortBox E-Mail"
+              className="w-11 h-11 rounded-xl shadow-md object-cover shrink-0"
+            />
             <div>
               <h1 className="text-base font-semibold tracking-tight">
                 IA For EveryOne — SortBox E-Mail

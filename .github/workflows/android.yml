@@ -9,6 +9,8 @@ on:
       - "src/renderer/**"
       - "src/shared/**"
       - "src/main/preload.cts"
+      - "public/**"
+      - "index.html"
       - "capacitor.config.ts"
       - "package.json"
       - "package-lock.json"

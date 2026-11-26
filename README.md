@@ -1,6 +1,12 @@
-# IA For EveryOne — SortBox E-Mail (Windows & Android)
+<p align="center">
+  <img src="build/icon.png" width="120" height="120" alt="IA For EveryOne — SortBox E-Mail" />
+</p>
 
-**[English](#english)** · **[Français](#français)**
+<h1 align="center">IA For EveryOne — SortBox E-Mail (Windows & Android)</h1>
+
+<p align="center">
+  <strong><a href="#english">English</a></strong> · <strong><a href="#français">Français</a></strong>
+</p>
 
 ---
 
