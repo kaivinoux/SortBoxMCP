@@ -270,6 +270,23 @@ export class ImapConnector {
     }
   }
 
+  async testSavedAccount(
+    account: MailAccount,
+    overrides?: Partial<
+      Pick<MailAccount, "imapHost" | "imapPort" | "imapSecure" | "authMode">
+    >,
+  ): Promise<{ ok: true; folderCount: number; folders: string[] }> {
+    const targetAccount: MailAccount = {
+      ...account,
+      imapHost: overrides?.imapHost?.trim() || account.imapHost,
+      imapPort: overrides?.imapPort ?? account.imapPort,
+      imapSecure: overrides?.imapSecure ?? account.imapSecure,
+      authMode: overrides?.authMode ?? account.authMode,
+    };
+    const secret = await this.resolveAuthSecret(targetAccount);
+    return this.testConnection(targetAccount, secret);
+  }
+
   async syncAccount(
     account: MailAccount,
     options: {

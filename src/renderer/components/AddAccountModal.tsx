@@ -6,6 +6,7 @@ import type { AuthMode, MailAccount } from "../../shared/types.js";
 
 interface AddAccountModalProps {
   open: boolean;
+  editingAccount?: MailAccount | null;
   defaultMicrosoftClientId: string;
   onClose: () => void;
   onAccountAdded: (account: MailAccount) => void;
@@ -13,6 +14,7 @@ interface AddAccountModalProps {
 
 export function AddAccountModal({
   open,
+  editingAccount = null,
   defaultMicrosoftClientId,
   onClose,
   onAccountAdded,
@@ -35,6 +37,9 @@ export function AddAccountModal({
     text: string;
   } | null>(null);
 
+  const isEditing = Boolean(editingAccount);
+  const needsSecretInput = !isEditing || editingAccount?.hasCredentials === false;
+
   useEffect(() => {
     setMsClientId(defaultMicrosoftClientId);
   }, [defaultMicrosoftClientId]);
@@ -42,9 +47,33 @@ export function AddAccountModal({
   useEffect(() => {
     if (!open) return;
     setStatusMsg(null);
-  }, [open]);
+    if (editingAccount) {
+      setEmail(editingAccount.email);
+      setLabel(editingAccount.label || editingAccount.email);
+      setAuthMode(editingAccount.authMode);
+      setImapHost(editingAccount.imapHost);
+      setImapPort(editingAccount.imapPort);
+      setImapSecure(editingAccount.imapSecure);
+      setSecret("");
+      window.sortbox.accounts
+        .detectProvider(editingAccount.email)
+        .then(setPreset)
+        .catch(() => {});
+    } else {
+      setEmail("");
+      setLabel("");
+      setSecret("");
+      setPreset(null);
+      setAuthMode("imap_password");
+      setImapHost("");
+      setImapPort(993);
+      setImapSecure(true);
+      setShowAdvanced(false);
+    }
+  }, [open, editingAccount]);
 
   useEffect(() => {
+    if (!open || editingAccount) return;
     let active = true;
     if (!email.includes("@")) {
       setPreset(null);
@@ -61,7 +90,7 @@ export function AddAccountModal({
     return () => {
       active = false;
     };
-  }, [email]);
+  }, [email, open, editingAccount]);
 
   if (!open) return null;
 
@@ -70,9 +99,10 @@ export function AddAccountModal({
     setStatusMsg(null);
     try {
       const res = await window.sortbox.accounts.test({
+        accountId: editingAccount?.id,
         email,
         label,
-        provider: preset?.id ?? "custom",
+        provider: preset?.id ?? editingAccount?.provider ?? "custom",
         authMode,
         imapHost,
         imapPort,
@@ -98,16 +128,27 @@ export function AddAccountModal({
     setSaving(true);
     setStatusMsg(null);
     try {
-      const account = await window.sortbox.accounts.add({
-        email,
-        label: label || email,
-        provider: preset?.id ?? "custom",
-        authMode,
-        imapHost,
-        imapPort,
-        imapSecure,
-        secret,
-      });
+      const account = editingAccount
+        ? await window.sortbox.accounts.update({
+            id: editingAccount.id,
+            label: label || email,
+            provider: preset?.id ?? editingAccount.provider,
+            authMode,
+            imapHost,
+            imapPort,
+            imapSecure,
+            secret: secret.trim() ? secret : undefined,
+          })
+        : await window.sortbox.accounts.add({
+            email,
+            label: label || email,
+            provider: preset?.id ?? "custom",
+            authMode,
+            imapHost,
+            imapPort,
+            imapSecure,
+            secret,
+          });
       onAccountAdded(account);
       setEmail("");
       setLabel("");
@@ -130,8 +171,17 @@ export function AddAccountModal({
       const account = await window.sortbox.accounts.microsoftLogin(
         msClientId,
         email || undefined,
+        editingAccount?.id,
       );
-      onAccountAdded(account);
+      if (editingAccount && label.trim() && label.trim() !== account.label) {
+        const renamed = await window.sortbox.accounts.update({
+          id: account.id,
+          label: label.trim(),
+        });
+        onAccountAdded(renamed);
+      } else {
+        onAccountAdded(account);
+      }
       onClose();
     } catch (err) {
       setStatusMsg({
@@ -150,7 +200,11 @@ export function AddAccountModal({
           <div className="flex items-center gap-2.5">
             <Mail className="w-5 h-5 text-sky-400" />
             <h2 className="text-base font-semibold">
-              Connecter une boîte mail
+              {isEditing
+                ? editingAccount?.hasCredentials === false
+                  ? "Reconnecter la boîte mail"
+                  : "Modifier le mode de connexion"
+                : "Connecter une boîte mail"}
             </h2>
           </div>
           <button
@@ -171,10 +225,11 @@ export function AddAccountModal({
               <input
                 type="email"
                 required
+                disabled={isEditing}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="prenom@orange.fr"
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-sky-500"
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-sky-500 disabled:opacity-60"
               />
             </div>
             <div>
@@ -232,30 +287,42 @@ export function AddAccountModal({
             </div>
           )}
 
-          {preset?.supportedAuths.includes("microsoft_oauth") && (
-            <div className="flex gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => setAuthMode("microsoft_oauth")}
-                className={`px-3 py-1.5 rounded-lg border cursor-pointer ${
-                  authMode === "microsoft_oauth"
-                    ? "bg-sky-500/20 border-sky-500 text-sky-200"
-                    : "border-slate-700 text-slate-400"
-                }`}
-              >
-                OAuth2 Microsoft (recommandé)
-              </button>
-              <button
-                type="button"
-                onClick={() => setAuthMode("imap_password")}
-                className={`px-3 py-1.5 rounded-lg border cursor-pointer ${
-                  authMode === "imap_password"
-                    ? "bg-sky-500/20 border-sky-500 text-sky-200"
-                    : "border-slate-700 text-slate-400"
-                }`}
-              >
-                Mot de passe IMAP
-              </button>
+          {(preset?.supportedAuths.includes("microsoft_oauth") ||
+            preset?.id === "custom" ||
+            isEditing) && (
+            <div className="space-y-1">
+              <div className="text-xs text-slate-400">Méthode de connexion :</div>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setAuthMode("imap_password")}
+                  className={`px-3 py-1.5 rounded-lg border cursor-pointer ${
+                    authMode !== "microsoft_oauth"
+                      ? "bg-sky-500/20 border-sky-500 text-sky-200 font-semibold"
+                      : "border-slate-700 text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  Mot de passe IMAP / d&apos;application
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode("microsoft_oauth");
+                    if (!imapHost || imapHost === "") {
+                      setImapHost("outlook.office365.com");
+                      setImapPort(993);
+                      setImapSecure(true);
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded-lg border cursor-pointer ${
+                    authMode === "microsoft_oauth"
+                      ? "bg-sky-500/20 border-sky-500 text-sky-200 font-semibold"
+                      : "border-slate-700 text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  OAuth2 Microsoft {preset?.id === "microsoft" ? "(recommandé)" : "(M365 / Outlook)"}
+                </button>
+              </div>
             </div>
           )}
 
@@ -294,10 +361,14 @@ export function AddAccountModal({
                 </label>
                 <input
                   type="password"
-                  required
+                  required={needsSecretInput}
                   value={secret}
                   onChange={(e) => setSecret(e.target.value)}
-                  placeholder="Mot de passe dédié..."
+                  placeholder={
+                    needsSecretInput
+                      ? "Mot de passe dédié..."
+                      : "Laisser vide pour garder l'actuel, ou saisir un nouveau"
+                  }
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-sky-500"
                 />
               </div>
@@ -310,37 +381,48 @@ export function AddAccountModal({
                 >
                   {showAdvanced
                     ? "▼ Masquer les paramètres IMAP"
-                    : `▶ Paramètres IMAP (${imapHost || "auto"}:${imapPort})`}
+                    : `▶ Paramètres IMAP (${imapHost || "auto"}:${imapPort} ${imapSecure ? "SSL" : "STARTTLS"})`}
                 </button>
               </div>
 
               {showAdvanced && (
-                <div className="grid grid-cols-3 gap-2 p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <div className="col-span-2">
-                    <label className="block text-xs text-slate-400 mb-1">
-                      Serveur IMAP
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={imapHost}
-                      onChange={(e) => setImapHost(e.target.value)}
-                      placeholder="imap.orange.fr"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs outline-none"
-                    />
+                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2">
+                      <label className="block text-xs text-slate-400 mb-1">
+                        Serveur IMAP
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={imapHost}
+                        onChange={(e) => setImapHost(e.target.value)}
+                        placeholder="imap.orange.fr"
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">
+                        Port
+                      </label>
+                      <input
+                        type="number"
+                        required
+                        value={imapPort}
+                        onChange={(e) => setImapPort(Number(e.target.value))}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs outline-none"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs text-slate-400 mb-1">
-                      Port
-                    </label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
                     <input
-                      type="number"
-                      required
-                      value={imapPort}
-                      onChange={(e) => setImapPort(Number(e.target.value))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs outline-none"
+                      type="checkbox"
+                      checked={imapSecure}
+                      onChange={(e) => setImapSecure(e.target.checked)}
+                      className="accent-sky-500"
                     />
-                  </div>
+                    Connexion SSL/TLS directe (décocher pour STARTTLS sur port 143)
+                  </label>
                 </div>
               )}
             </div>
@@ -367,7 +449,7 @@ export function AddAccountModal({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  disabled={testing || !email || !imapHost || !secret}
+                  disabled={testing || !email || !imapHost || (needsSecretInput && !secret)}
                   onClick={handleTest}
                   className="px-3 py-2 rounded-lg border border-slate-700 hover:bg-slate-800 text-xs font-medium cursor-pointer disabled:opacity-40"
                 >
@@ -375,10 +457,14 @@ export function AddAccountModal({
                 </button>
                 <button
                   type="submit"
-                  disabled={saving || !email || !imapHost || !secret}
+                  disabled={saving || !email || !imapHost || (needsSecretInput && !secret)}
                   className="px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 text-xs font-semibold cursor-pointer disabled:opacity-40"
                 >
-                  {saving ? "Enregistrement..." : "Ajouter le compte"}
+                  {saving
+                    ? "Enregistrement..."
+                    : isEditing
+                      ? "Enregistrer"
+                      : "Ajouter le compte"}
                 </button>
               </div>
             )}

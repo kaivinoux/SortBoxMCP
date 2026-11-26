@@ -7,12 +7,15 @@ import { detectProviderFromEmail } from "../shared/providers.js";
 import type {
   AddAccountInput,
   AppSettings,
+  MailAccount,
   McpActivityEvent,
   SenderGroup,
   SenderQueryOptions,
   SortMoveItem,
+  TestAccountInput,
   UnsubscribeRequest,
   UnsubscribeResult,
+  UpdateAccountInput,
 } from "../shared/types.js";
 import {
   classifyUnsubscribeHttpResponse,
@@ -191,14 +194,31 @@ async function boot(): Promise<void> {
     writeRuntimeInfo(false, initialSettings.mcpPort);
   }
 
+  const withCredentialStatus = (acc: MailAccount): MailAccount => ({
+    ...acc,
+    hasCredentials: vault.hasSecret(acc.id),
+  });
+
   // --- IPC: Accounts ---
-  ipcMain.handle("accounts:list", () => db.listAccounts());
+  ipcMain.handle("accounts:list", () =>
+    db.listAccounts().map(withCredentialStatus),
+  );
 
   ipcMain.handle("accounts:detectProvider", (_e, email: string) =>
     detectProviderFromEmail(email),
   );
 
-  ipcMain.handle("accounts:test", async (_e, input: AddAccountInput) => {
+  ipcMain.handle("accounts:test", async (_e, input: TestAccountInput) => {
+    if (!input.secret && input.accountId) {
+      const saved = db.getAccount(input.accountId);
+      if (!saved) throw new Error("Compte introuvable.");
+      return connector.testSavedAccount(saved, {
+        imapHost: input.imapHost,
+        imapPort: input.imapPort,
+        imapSecure: input.imapSecure,
+        authMode: input.authMode,
+      });
+    }
     return connector.testConnection(
       {
         email: input.email.trim().toLowerCase(),
@@ -212,53 +232,109 @@ async function boot(): Promise<void> {
   });
 
   ipcMain.handle("accounts:add", async (_e, input: AddAccountInput) => {
+    const existing = db.getAccountByEmail(input.email);
+    if (existing) {
+      const updated = db.updateAccount({
+        id: existing.id,
+        label: input.label,
+        provider: input.provider,
+        authMode: input.authMode,
+        imapHost: input.imapHost,
+        imapPort: input.imapPort,
+        imapSecure: input.imapSecure,
+      });
+      if (input.secret) {
+        vault.setSecret(existing.id, { password: input.secret });
+      }
+      return withCredentialStatus(updated);
+    }
+
     const id = crypto.randomUUID();
     const account = db.createAccount(id, input);
     try {
       if (input.secret) {
         vault.setSecret(id, { password: input.secret });
       }
-      return account;
+      return withCredentialStatus(account);
     } catch (err) {
       db.deleteAccount(id);
       throw err;
     }
   });
 
-  ipcMain.handle("accounts:microsoftLogin", async (_e, clientId: string, loginHint?: string) => {
-    const effectiveClientId = (clientId || db.getSettings().microsoftClientId).trim();
-    const tokens = await runMicrosoftPkceLogin({
-      clientId: effectiveClientId,
-      loginHint,
-      openExternal: (url) => shell.openExternal(url),
-    });
-    const email = (tokens.email || loginHint || "").trim().toLowerCase();
-    if (!email) {
-      throw new Error("Impossible de déterminer l'adresse email Microsoft.");
+  ipcMain.handle("accounts:update", (_e, input: UpdateAccountInput) => {
+    const updated = db.updateAccount(input);
+    if (input.clearSecret) {
+      vault.deleteSecret(updated.id);
+    } else if (input.secret && input.secret.trim()) {
+      vault.setSecret(updated.id, { password: input.secret });
     }
-    if (effectiveClientId) {
-      db.saveSettings({ microsoftClientId: effectiveClientId });
-    }
-    const existing = db.listAccounts().find((a) => a.email === email);
-    const accountId = existing?.id || crypto.randomUUID();
-    const account =
-      existing ||
-      db.createAccount(accountId, {
-        email,
-        label: email,
-        provider: "microsoft",
-        authMode: "microsoft_oauth",
-        imapHost: "outlook.office365.com",
-        imapPort: 993,
-        imapSecure: true,
-      });
-    vault.setSecret(account.id, {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      expiresAt: tokens.expiresAt,
-    });
-    return account;
+    return withCredentialStatus(updated);
   });
+
+  ipcMain.handle("accounts:disconnect", (_e, accountId: string) => {
+    const acc = db.getAccount(accountId);
+    if (!acc) throw new Error("Compte introuvable.");
+    vault.deleteSecret(accountId);
+    db.updateAccountSyncStatus(accountId, "idle", null);
+    const refreshed = db.getAccount(accountId) || acc;
+    return withCredentialStatus(refreshed);
+  });
+
+  ipcMain.handle(
+    "accounts:microsoftLogin",
+    async (
+      _e,
+      clientId: string,
+      loginHint?: string,
+      targetAccountId?: string,
+    ) => {
+      const effectiveClientId = (
+        clientId || db.getSettings().microsoftClientId
+      ).trim();
+      const targetAcc = targetAccountId
+        ? db.getAccount(targetAccountId)
+        : undefined;
+      const hint = loginHint || targetAcc?.email;
+      const tokens = await runMicrosoftPkceLogin({
+        clientId: effectiveClientId,
+        loginHint: hint,
+        openExternal: (url) => shell.openExternal(url),
+      });
+      const email = (tokens.email || hint || "").trim().toLowerCase();
+      if (!email) {
+        throw new Error("Impossible de déterminer l'adresse email Microsoft.");
+      }
+      if (effectiveClientId) {
+        db.saveSettings({ microsoftClientId: effectiveClientId });
+      }
+      const existing = targetAcc || db.getAccountByEmail(email);
+      const account = existing
+        ? db.updateAccount({
+            id: existing.id,
+            provider: "microsoft",
+            authMode: "microsoft_oauth",
+            imapHost: "outlook.office365.com",
+            imapPort: 993,
+            imapSecure: true,
+          })
+        : db.createAccount(crypto.randomUUID(), {
+            email,
+            label: email,
+            provider: "microsoft",
+            authMode: "microsoft_oauth",
+            imapHost: "outlook.office365.com",
+            imapPort: 993,
+            imapSecure: true,
+          });
+      vault.setSecret(account.id, {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresAt: tokens.expiresAt,
+      });
+      return withCredentialStatus(account);
+    },
+  );
 
   ipcMain.handle("accounts:delete", (_e, accountId: string) => {
     vault.deleteSecret(accountId);

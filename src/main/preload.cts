@@ -9,8 +9,10 @@ import type {
   SortMoveItem,
   SortPlan,
   SyncProgressEvent,
+  TestAccountInput,
   UnsubscribeRequest,
   UnsubscribeResult,
+  UpdateAccountInput,
 } from "../shared/types.js";
 
 const api = {
@@ -18,11 +20,24 @@ const api = {
     list: () => ipcRenderer.invoke("accounts:list"),
     detectProvider: (email: string) =>
       ipcRenderer.invoke("accounts:detectProvider", email),
-    test: (input: AddAccountInput) => ipcRenderer.invoke("accounts:test", input),
+    test: (input: TestAccountInput) => ipcRenderer.invoke("accounts:test", input),
     add: (input: AddAccountInput) => ipcRenderer.invoke("accounts:add", input),
+    update: (input: UpdateAccountInput) =>
+      ipcRenderer.invoke("accounts:update", input),
+    disconnect: (accountId: string) =>
+      ipcRenderer.invoke("accounts:disconnect", accountId),
     delete: (accountId: string) => ipcRenderer.invoke("accounts:delete", accountId),
-    microsoftLogin: (clientId: string, loginHint?: string) =>
-      ipcRenderer.invoke("accounts:microsoftLogin", clientId, loginHint),
+    microsoftLogin: (
+      clientId: string,
+      loginHint?: string,
+      targetAccountId?: string,
+    ) =>
+      ipcRenderer.invoke(
+        "accounts:microsoftLogin",
+        clientId,
+        loginHint,
+        targetAccountId,
+      ),
     sync: (accountId: string, folderPath?: string, limit?: number) =>
       ipcRenderer.invoke("accounts:sync", accountId, folderPath, limit),
   },

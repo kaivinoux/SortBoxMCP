@@ -21,20 +21,25 @@ import type {
   SortPlan,
   SortRule,
   SyncProgressEvent,
+  TestAccountInput,
   UnsubscribeRequest,
   UnsubscribeResult,
+  UpdateAccountInput,
 } from "../../shared/types.js";
 
 interface SortBoxNativePlugin {
   accountsList(): Promise<{ items: MailAccount[] }>;
   accountsTest(
-    input: AddAccountInput,
+    input: TestAccountInput,
   ): Promise<{ ok: true; folderCount: number; folders: string[] }>;
   accountsAdd(input: AddAccountInput): Promise<MailAccount>;
+  accountsUpdate(input: UpdateAccountInput): Promise<MailAccount>;
+  accountsDisconnect(opts: { accountId: string }): Promise<MailAccount>;
   accountsDelete(opts: { accountId: string }): Promise<void>;
   accountsMicrosoftLogin(opts: {
     clientId: string;
     loginHint?: string;
+    targetAccountId?: string;
   }): Promise<MailAccount>;
   accountsSync(opts: {
     accountId: string;
@@ -163,9 +168,15 @@ export function createAndroidSortBoxApi(): SortBoxApi {
       detectProvider: async (email: string) => detectProviderFromEmail(email),
       test: (input) => SortBoxNative.accountsTest(input),
       add: (input) => SortBoxNative.accountsAdd(input),
+      update: (input) => SortBoxNative.accountsUpdate(input),
+      disconnect: (accountId) => SortBoxNative.accountsDisconnect({ accountId }),
       delete: (accountId) => SortBoxNative.accountsDelete({ accountId }),
-      microsoftLogin: (clientId, loginHint) =>
-        SortBoxNative.accountsMicrosoftLogin({ clientId, loginHint }),
+      microsoftLogin: (clientId, loginHint, targetAccountId) =>
+        SortBoxNative.accountsMicrosoftLogin({
+          clientId,
+          loginHint,
+          targetAccountId,
+        }),
       sync: (accountId, folderPath, limit) =>
         SortBoxNative.accountsSync({ accountId, folderPath, limit }),
     },

@@ -35,11 +35,28 @@ public class SortBoxPlugin extends Plugin {
         this.executor = Executors.newCachedThreadPool();
     }
 
+    private JSObject withCredentialStatus(JSObject acc) {
+        if (acc == null) return null;
+        try {
+            acc.put("hasCredentials", vault.getSecret(acc.getString("id")) != null);
+        } catch (Exception e) {
+            acc.put("hasCredentials", false);
+        }
+        return acc;
+    }
+
     @PluginMethod
     public void accountsList(PluginCall call) {
         executor.execute(() -> {
+            JSArray raw = db.listAccounts();
+            JSArray enriched = new JSArray();
+            for (int i = 0; i < raw.length(); i++) {
+                try {
+                    enriched.put(withCredentialStatus(JSObject.fromJSONObject(raw.getJSONObject(i))));
+                } catch (Exception ignored) {}
+            }
             JSObject res = new JSObject();
-            res.put("items", db.listAccounts());
+            res.put("items", enriched);
             call.resolve(res);
         });
     }
@@ -48,12 +65,26 @@ public class SortBoxPlugin extends Plugin {
     public void accountsTest(PluginCall call) {
         executor.execute(() -> {
             try {
+                String accountId = call.getString("accountId", "");
                 String email = call.getString("email", "").trim().toLowerCase();
                 String imapHost = call.getString("imapHost", "").trim();
                 int imapPort = call.getInt("imapPort", 993);
-                boolean imapSecure = call.getBoolean("imapSecure", true);
+                boolean imapSecure = Boolean.TRUE.equals(call.getBoolean("imapSecure", true));
                 String secret = call.getString("secret", "");
                 String authMode = call.getString("authMode", "imap_password");
+
+                if ((secret == null || secret.isEmpty()) && accountId != null && !accountId.isEmpty()) {
+                    JSObject savedAcc = db.getAccount(accountId);
+                    if (savedAcc == null) {
+                        call.reject("Compte introuvable.");
+                        return;
+                    }
+                    if (email.isEmpty()) email = savedAcc.getString("email");
+                    if (imapHost.isEmpty()) imapHost = savedAcc.getString("imapHost");
+                    secret = resolveAccessSecret(savedAcc);
+                    authMode = savedAcc.getString("authMode");
+                }
+
                 JSObject res = imap.testConnection(
                     imapHost, imapPort, imapSecure, email, secret, !"imap_password".equals(authMode)
                 );
@@ -76,20 +107,83 @@ public class SortBoxPlugin extends Plugin {
                 String authMode = call.getString("authMode", "imap_password");
                 String imapHost = call.getString("imapHost", "").trim();
                 int imapPort = call.getInt("imapPort", 993);
-                boolean imapSecure = call.getBoolean("imapSecure", true);
+                boolean imapSecure = Boolean.TRUE.equals(call.getBoolean("imapSecure", true));
                 String secret = call.getString("secret", "");
 
-                JSObject acc = db.createAccount(id, label, email, provider, authMode, imapHost, imapPort, imapSecure);
-                if (secret != null && !secret.isEmpty()) {
+                JSObject existing = db.getAccountByEmail(email);
+                JSObject acc;
+                if (existing != null) {
+                    String existingId = existing.getString("id");
+                    acc = db.updateAccount(existingId, label, provider, authMode, imapHost, imapPort, imapSecure);
+                    if (secret != null && !secret.isEmpty()) {
+                        JSONObject sec = new JSONObject();
+                        sec.put("password", secret);
+                        vault.setSecret(existingId, sec);
+                    }
+                } else {
+                    acc = db.createAccount(id, label, email, provider, authMode, imapHost, imapPort, imapSecure);
+                    if (secret != null && !secret.isEmpty()) {
+                        JSONObject sec = new JSONObject();
+                        sec.put("password", secret);
+                        vault.setSecret(id, sec);
+                    }
+                }
+                call.resolve(withCredentialStatus(acc));
+            } catch (Exception e) {
+                if (db.getAccount(id) != null) db.deleteAccount(id);
+                call.reject(e.getMessage() != null ? e.getMessage() : e.toString(), e);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void accountsUpdate(PluginCall call) {
+        executor.execute(() -> {
+            try {
+                String id = call.getString("id", "");
+                JSObject existing = db.getAccount(id);
+                if (existing == null) {
+                    call.reject("Compte introuvable.");
+                    return;
+                }
+                String label = call.has("label") ? call.getString("label", existing.getString("label")) : existing.getString("label");
+                String provider = call.has("provider") ? call.getString("provider", existing.getString("provider")) : existing.getString("provider");
+                String authMode = call.has("authMode") ? call.getString("authMode", existing.getString("authMode")) : existing.getString("authMode");
+                String imapHost = call.has("imapHost") ? call.getString("imapHost", existing.getString("imapHost")) : existing.getString("imapHost");
+                int imapPort = call.has("imapPort") ? call.getInt("imapPort", existing.getInt("imapPort")) : existing.getInt("imapPort");
+                boolean imapSecure = call.has("imapSecure")
+                    ? Boolean.TRUE.equals(call.getBoolean("imapSecure", existing.getBoolean("imapSecure")))
+                    : existing.getBoolean("imapSecure");
+
+                JSObject updated = db.updateAccount(id, label, provider, authMode, imapHost, imapPort, imapSecure);
+                boolean clearSecret = Boolean.TRUE.equals(call.getBoolean("clearSecret", false));
+                String secret = call.getString("secret", "");
+                if (clearSecret) {
+                    vault.deleteSecret(id);
+                } else if (secret != null && !secret.trim().isEmpty()) {
                     JSONObject sec = new JSONObject();
                     sec.put("password", secret);
                     vault.setSecret(id, sec);
                 }
-                call.resolve(acc);
+                call.resolve(withCredentialStatus(updated));
             } catch (Exception e) {
-                db.deleteAccount(id);
                 call.reject(e.getMessage() != null ? e.getMessage() : e.toString(), e);
             }
+        });
+    }
+
+    @PluginMethod
+    public void accountsDisconnect(PluginCall call) {
+        String accountId = call.getString("accountId", "");
+        executor.execute(() -> {
+            JSObject acc = db.getAccount(accountId);
+            if (acc == null) {
+                call.reject("Compte introuvable.");
+                return;
+            }
+            vault.deleteSecret(accountId);
+            db.updateAccountSyncStatus(accountId, "idle", null);
+            call.resolve(withCredentialStatus(db.getAccount(accountId)));
         });
     }
 
@@ -134,8 +228,14 @@ public class SortBoxPlugin extends Plugin {
             try {
                 String clientId = call.getString("clientId", "");
                 String loginHint = call.getString("loginHint", "");
+                String targetAccountId = call.getString("targetAccountId", "");
                 if (clientId == null || clientId.trim().isEmpty()) {
                     clientId = db.getSettings().optString("microsoftClientId", "");
+                }
+                JSObject targetAcc = (targetAccountId != null && !targetAccountId.isEmpty())
+                    ? db.getAccount(targetAccountId) : null;
+                if ((loginHint == null || loginHint.trim().isEmpty()) && targetAcc != null) {
+                    loginHint = targetAcc.optString("email", "");
                 }
                 AndroidMicrosoftOAuth.TokenResult tokens = AndroidMicrosoftOAuth.runPkceLogin(getContext(), clientId, loginHint);
                 String email = tokens.email != null ? tokens.email : (loginHint != null ? loginHint.trim().toLowerCase() : "");
@@ -149,26 +249,28 @@ public class SortBoxPlugin extends Plugin {
                     db.saveSettings(s);
                 }
 
-                JSObject existing = null;
-                JSArray list = db.listAccounts();
-                for (int i = 0; i < list.length(); i++) {
-                    JSONObject item = list.getJSONObject(i);
-                    if (email.equalsIgnoreCase(item.optString("email"))) {
-                        existing = JSObject.fromJSONObject(item);
-                        break;
-                    }
+                JSObject existing = targetAcc != null ? targetAcc : db.getAccountByEmail(email);
+                JSObject acc;
+                String accId;
+                if (existing != null) {
+                    accId = existing.getString("id");
+                    acc = db.updateAccount(
+                        accId, existing.optString("label", email),
+                        "microsoft", "microsoft_oauth", "outlook.office365.com", 993, true
+                    );
+                } else {
+                    accId = UUID.randomUUID().toString();
+                    acc = db.createAccount(
+                        accId, email, email, "microsoft", "microsoft_oauth", "outlook.office365.com", 993, true
+                    );
                 }
-                String accId = existing != null ? existing.getString("id") : UUID.randomUUID().toString();
-                JSObject acc = existing != null
-                    ? existing
-                    : db.createAccount(accId, email, email, "microsoft", "microsoft_oauth", "outlook.office365.com", 993, true);
 
                 JSONObject sec = new JSONObject();
                 sec.put("accessToken", tokens.accessToken);
                 sec.put("refreshToken", tokens.refreshToken);
                 sec.put("expiresAt", tokens.expiresAt);
                 vault.setSecret(accId, sec);
-                call.resolve(acc);
+                call.resolve(withCredentialStatus(acc));
             } catch (Exception e) {
                 call.reject(e.getMessage() != null ? e.getMessage() : e.toString(), e);
             }

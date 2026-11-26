@@ -1,6 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 import React, { useCallback, useEffect, useState } from "react";
-import { Cpu, Layers, ListFilter, MailPlus, Sparkles } from "lucide-react";
+import { Cpu, Layers, ListFilter, MailPlus, Settings2, Sparkles } from "lucide-react";
 import type {
   AppSettings,
   AuditStats,
@@ -17,6 +17,7 @@ import type {
 } from "../shared/types.js";
 import { AddAccountModal } from "./components/AddAccountModal.js";
 import { AiExportView } from "./components/AiExportView.js";
+import { ManageAccountsModal } from "./components/ManageAccountsModal.js";
 import { McpSettingsView } from "./components/McpSettingsView.js";
 import { PlanView } from "./components/PlanView.js";
 import { TriageView } from "./components/TriageView.js";
@@ -68,6 +69,8 @@ export default function App() {
   const [syncProgress, setSyncProgress] = useState<SyncProgressEvent | null>(null);
   const [planProgress, setPlanProgress] = useState<PlanApplyProgressEvent | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [manageAccountsOpen, setManageAccountsOpen] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<MailAccount | null>(null);
   const [bannerError, setBannerError] = useState<string | null>(null);
 
   const refreshData = useCallback(
@@ -145,6 +148,39 @@ export default function App() {
     0,
   );
 
+  function openEditAccount(acc: MailAccount) {
+    setEditingAccount(acc);
+    setAddModalOpen(true);
+  }
+
+  async function handleDisconnectAccount(accountId: string) {
+    await window.sortbox.accounts.disconnect(accountId);
+    await refreshData();
+  }
+
+  async function handleDeleteAccount(accountId: string) {
+    await window.sortbox.accounts.delete(accountId);
+    if (activeAccountId === accountId) {
+      setActiveAccountId("all");
+      setQueryOpts((prev) => ({ ...prev, accountId: "all" }));
+      await refreshData({ ...queryOpts, accountId: "all" });
+    } else {
+      await refreshData();
+    }
+  }
+
+  async function handleTestSavedAccount(acc: MailAccount) {
+    return window.sortbox.accounts.test({
+      accountId: acc.id,
+      email: acc.email,
+      provider: acc.provider,
+      authMode: acc.authMode,
+      imapHost: acc.imapHost,
+      imapPort: acc.imapPort,
+      imapSecure: acc.imapSecure,
+    });
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-3 sm:p-4 lg:p-6 pb-24 lg:pb-6">
       <div className="max-w-7xl mx-auto space-y-4">
@@ -179,14 +215,28 @@ export default function App() {
               <option value="all">Toutes les boîtes ({accounts.length})</option>
               {accounts.map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.label} ({a.email})
+                  {a.label} ({a.email}){a.hasCredentials === false ? " [Déconnecté]" : ""}
                 </option>
               ))}
             </select>
 
+            {accounts.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setManageAccountsOpen(true)}
+                className="text-xs px-3 py-2 rounded-lg border border-slate-700 bg-slate-950 hover:bg-slate-800 text-slate-200 font-medium flex items-center gap-1.5 cursor-pointer"
+              >
+                <Settings2 className="w-3.5 h-3.5 text-sky-400" />
+                Gérer ({accounts.length})
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={() => setAddModalOpen(true)}
+              onClick={() => {
+                setEditingAccount(null);
+                setAddModalOpen(true);
+              }}
               className="text-xs px-3.5 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold flex items-center gap-1.5 cursor-pointer"
             >
               <MailPlus className="w-3.5 h-3.5" />
@@ -555,12 +605,13 @@ export default function App() {
                   const st = await window.sortbox.mcp.status();
                   setMcpStatus(st);
                 }}
-                onDeleteAccount={async (accountId) => {
-                  await window.sortbox.accounts.delete(accountId);
-                  if (activeAccountId === accountId) {
-                    setActiveAccountId("all");
-                  }
-                  await refreshData();
+                onEditAccount={openEditAccount}
+                onDisconnectAccount={handleDisconnectAccount}
+                onDeleteAccount={handleDeleteAccount}
+                onTestSavedAccount={handleTestSavedAccount}
+                onAddAccount={() => {
+                  setEditingAccount(null);
+                  setAddModalOpen(true);
                 }}
               />
             )}
@@ -568,10 +619,28 @@ export default function App() {
         </div>
       </div>
 
+      <ManageAccountsModal
+        open={manageAccountsOpen}
+        accounts={accounts}
+        onClose={() => setManageAccountsOpen(false)}
+        onAddNew={() => {
+          setEditingAccount(null);
+          setAddModalOpen(true);
+        }}
+        onEditAccount={openEditAccount}
+        onDisconnectAccount={handleDisconnectAccount}
+        onDeleteAccount={handleDeleteAccount}
+        onTestSavedAccount={handleTestSavedAccount}
+      />
+
       <AddAccountModal
         open={addModalOpen}
+        editingAccount={editingAccount}
         defaultMicrosoftClientId={settings.microsoftClientId}
-        onClose={() => setAddModalOpen(false)}
+        onClose={() => {
+          setAddModalOpen(false);
+          setEditingAccount(null);
+        }}
         onAccountAdded={async (account) => {
           setActiveAccountId(account.id);
           setQueryOpts((prev) => ({ ...prev, accountId: account.id }));

@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { Check, Copy, Cpu, Shield, Trash2 } from "lucide-react";
+import { Check, Copy, Cpu, Shield } from "lucide-react";
 import type {
   AppSettings,
   MailAccount,
   McpActivityEvent,
 } from "../../shared/types.js";
+import { AccountList } from "./AccountList.js";
 
 interface McpSettingsViewProps {
   accounts: MailAccount[];
@@ -13,7 +14,13 @@ interface McpSettingsViewProps {
   mcpActivity: McpActivityEvent[];
   isMobileNative?: boolean;
   onSaveSettings: (partial: Partial<AppSettings>) => Promise<void>;
+  onEditAccount: (account: MailAccount) => void;
+  onDisconnectAccount: (accountId: string) => Promise<void>;
   onDeleteAccount: (accountId: string) => Promise<void>;
+  onTestSavedAccount: (
+    account: MailAccount,
+  ) => Promise<{ ok: true; folderCount: number }>;
+  onAddAccount: () => void;
 }
 
 export function McpSettingsView({
@@ -23,7 +30,11 @@ export function McpSettingsView({
   mcpActivity,
   isMobileNative = false,
   onSaveSettings,
+  onEditAccount,
+  onDisconnectAccount,
   onDeleteAccount,
+  onTestSavedAccount,
+  onAddAccount,
 }: McpSettingsViewProps) {
   const [stdioInfo, setStdioInfo] = useState<{
     executable: string;
@@ -191,28 +202,15 @@ export function McpSettingsView({
             </div>
           </div>
 
-          <div className="space-y-2 pt-2">
-            {accounts.map((acc) => (
-              <div
-                key={acc.id}
-                className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between gap-2"
-              >
-                <div>
-                  <div className="font-medium text-slate-100">{acc.email}</div>
-                  <div className="text-slate-500">
-                    {acc.imapHost}:{acc.imapPort} • {acc.authMode}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onDeleteAccount(acc.id)}
-                  className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
-                  title="Supprimer ce compte"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
+          <div className="pt-2">
+            <AccountList
+              accounts={accounts}
+              onEditAccount={onEditAccount}
+              onDisconnectAccount={onDisconnectAccount}
+              onDeleteAccount={onDeleteAccount}
+              onTestSavedAccount={onTestSavedAccount}
+              onAddNew={onAddAccount}
+            />
           </div>
         </div>
 

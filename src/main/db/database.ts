@@ -15,6 +15,7 @@ import type {
   SortMoveItem,
   SortPlan,
   SortRule,
+  UpdateAccountInput,
 } from "../../shared/types.js";
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -230,6 +231,11 @@ export class AppDatabase {
     return this.listAccounts().find((a) => a.id === accountId) ?? null;
   }
 
+  getAccountByEmail(email: string): MailAccount | null {
+    const clean = email.trim().toLowerCase();
+    return this.listAccounts().find((a) => a.email === clean) ?? null;
+  }
+
   createAccount(id: string, input: AddAccountInput): MailAccount {
     const now = new Date().toISOString();
     const cleanEmail = input.email.trim().toLowerCase();
@@ -254,6 +260,43 @@ export class AppDatabase {
     const created = this.getAccount(id);
     if (!created) throw new Error("Échec de création du compte.");
     return created;
+  }
+
+  updateAccount(input: UpdateAccountInput): MailAccount {
+    const existing = this.getAccount(input.id);
+    if (!existing) throw new Error("Compte introuvable.");
+    const label = (input.label !== undefined ? input.label : existing.label).trim() || existing.email;
+    const provider = input.provider ?? existing.provider;
+    const authMode = input.authMode ?? existing.authMode;
+    const imapHost = (input.imapHost ?? existing.imapHost).trim();
+    const imapPort = input.imapPort ?? existing.imapPort;
+    const imapSecure = input.imapSecure ?? existing.imapSecure;
+
+    this.db
+      .prepare(
+        `UPDATE accounts
+         SET label = ?,
+             provider = ?,
+             auth_mode = ?,
+             imap_host = ?,
+             imap_port = ?,
+             imap_secure = ?,
+             last_sync_status = 'idle',
+             last_sync_error = NULL
+         WHERE id = ?`,
+      )
+      .run(
+        label,
+        provider,
+        authMode,
+        imapHost,
+        imapPort,
+        imapSecure ? 1 : 0,
+        input.id,
+      );
+    const updated = this.getAccount(input.id);
+    if (!updated) throw new Error("Compte introuvable après mise à jour.");
+    return updated;
   }
 
   updateAccountSyncStatus(

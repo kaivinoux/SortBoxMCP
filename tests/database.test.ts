@@ -157,4 +157,20 @@ describe("AppDatabase (SQLite + FTS5)", () => {
     expect(dgfip?.unsubscribeStatus).toBe("pending");
     expect(dgfip?.unsubscribedAt).toBeNull();
   });
+
+  it("updates existing account auth mode and IMAP settings cleanly", () => {
+    const updated = db.updateAccount({
+      id: "acc1",
+      label: "Orange Pro",
+      provider: "microsoft",
+      authMode: "microsoft_oauth",
+      imapHost: "outlook.office365.com",
+      imapPort: 993,
+      imapSecure: true,
+    });
+    expect(updated.label).toBe("Orange Pro");
+    expect(updated.authMode).toBe("microsoft_oauth");
+    expect(updated.imapHost).toBe("outlook.office365.com");
+    expect(db.getAccountByEmail("USER@ORANGE.FR")?.id).toBe("acc1");
+  });
 });

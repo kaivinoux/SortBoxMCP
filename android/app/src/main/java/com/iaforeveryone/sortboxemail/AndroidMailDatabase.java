@@ -156,6 +156,16 @@ public class AndroidMailDatabase extends SQLiteOpenHelper {
         return null;
     }
 
+    public synchronized JSObject getAccountByEmail(String email) {
+        if (email == null) return null;
+        String clean = email.trim().toLowerCase(Locale.US);
+        SQLiteDatabase db = getReadableDatabase();
+        try (Cursor c = db.rawQuery("SELECT * FROM accounts WHERE LOWER(email) = ?", new String[] { clean })) {
+            if (c.moveToFirst()) return cursorToAccount(c);
+        }
+        return null;
+    }
+
     private JSObject cursorToAccount(Cursor c) {
         JSObject obj = new JSObject();
         obj.put("id", c.getString(c.getColumnIndexOrThrow("id")));
@@ -197,6 +207,28 @@ public class AndroidMailDatabase extends SQLiteOpenHelper {
         cv.put("imap_secure", imapSecure ? 1 : 0);
         cv.put("created_at", nowIso());
         db.insertOrThrow("accounts", null, cv);
+        return getAccount(id);
+    }
+
+    public synchronized JSObject updateAccount(
+        String id,
+        String label,
+        String provider,
+        String authMode,
+        String imapHost,
+        int imapPort,
+        boolean imapSecure
+    ) {
+        ContentValues cv = new ContentValues();
+        if (label != null) cv.put("label", label.trim());
+        if (provider != null) cv.put("provider", provider);
+        if (authMode != null) cv.put("auth_mode", authMode);
+        if (imapHost != null) cv.put("imap_host", imapHost.trim());
+        cv.put("imap_port", imapPort);
+        cv.put("imap_secure", imapSecure ? 1 : 0);
+        cv.put("last_sync_status", "idle");
+        cv.putNull("last_sync_error");
+        getWritableDatabase().update("accounts", cv, "id = ?", new String[] { id });
         return getAccount(id);
     }
 

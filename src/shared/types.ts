@@ -25,6 +25,7 @@ export interface MailAccount {
   lastSyncAt: string | null;
   lastSyncStatus: "idle" | "syncing" | "ok" | "error";
   lastSyncError: string | null;
+  hasCredentials?: boolean;
 }
 
 export interface AddAccountInput {
@@ -36,6 +37,22 @@ export interface AddAccountInput {
   imapPort: number;
   imapSecure: boolean;
   secret?: string; // App password or IMAP password
+}
+
+export interface UpdateAccountInput {
+  id: string;
+  label?: string;
+  provider?: ProviderId;
+  authMode?: AuthMode;
+  imapHost?: string;
+  imapPort?: number;
+  imapSecure?: boolean;
+  secret?: string; // Optional replacement password
+  clearSecret?: boolean;
+}
+
+export interface TestAccountInput extends AddAccountInput {
+  accountId?: string;
 }
 
 export interface FolderInfo {
