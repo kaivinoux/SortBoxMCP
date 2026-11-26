@@ -826,14 +826,25 @@ public class SortBoxPlugin extends Plugin {
     public void emailsMarkUnsubscribed(PluginCall call) {
         String accountId = call.getString("accountId", "");
         String senderKey = call.getString("senderKey", "");
+        String status = call.getString("status", "confirmed");
         String method = call.getString("method", "manual");
         String targetUrl = call.getString("targetUrl", null);
+        String detail = call.getString("detail", null);
         executor.execute(() -> {
-            String at = db.markSenderUnsubscribed(accountId, senderKey, method, targetUrl);
+            String at = db.saveUnsubscribeStatus(accountId, senderKey, status, method, targetUrl, detail);
             JSObject res = new JSObject();
             res.put("unsubscribedAt", at);
             call.resolve(res);
         });
+    }
+
+    private static class CandidateSource {
+        long uid;
+        String httpUrl;
+        String mailtoUrl;
+        boolean oneClick;
+        boolean fromBody;
+        String dateIso;
     }
 
     @PluginMethod
@@ -857,104 +868,208 @@ public class SortBoxPlugin extends Plugin {
                     : (!fromAddr.isEmpty() ? fromAddr : groupKey);
                 matchValue = matchValue.trim().toLowerCase(java.util.Locale.US);
 
-                AndroidMailDatabase.LatestUnsubCache latest =
-                    db.getLatestEmailForGroup(accountId, folderPath, matchBy, matchValue);
+                List<AndroidMailDatabase.LatestUnsubCache> cachedList =
+                    db.getCandidateEmailsForGroup(accountId, folderPath, matchBy, matchValue, 6);
+                List<Long> cachedUids = new ArrayList<>();
+                Set<Long> cachedUidSet = new HashSet<>();
+                for (AndroidMailDatabase.LatestUnsubCache c : cachedList) {
+                    cachedUids.add(c.uid);
+                    cachedUidSet.add(c.uid);
+                }
 
-                String httpUrl = req.isNull("unsubscribeUrl") ? null : req.optString("unsubscribeUrl", null);
-                if (httpUrl == null && latest != null) httpUrl = latest.unsubscribeUrl;
-
-                String mailtoUrl = req.isNull("unsubscribeMailto") ? null : req.optString("unsubscribeMailto", null);
-                if (mailtoUrl == null && latest != null) mailtoUrl = latest.unsubscribeMailto;
-
-                boolean oneClick = req.optBoolean("unsubscribeOneClick", false)
-                    || (latest != null && latest.unsubscribeOneClick);
-                boolean fromBody = false;
+                List<CandidateSource> candidates = new ArrayList<>();
+                Set<String> seenKeys = new HashSet<>();
+                String newestDateIso = req.isNull("latestDateIso") ? "" : req.optString("latestDateIso", "");
+                if (newestDateIso.isEmpty() && !cachedList.isEmpty()) {
+                    newestDateIso = cachedList.get(0).dateIso;
+                }
 
                 JSObject acc = db.getAccount(accountId);
-                if (acc != null && latest != null && !oneClick) {
+                if (acc != null) {
                     try {
                         String secret = resolveAccessSecret(acc);
-                        AndroidImapEngine.UnsubscribeInfo fresh =
-                            imap.fetchLatestUnsubscribeInfo(acc, secret, folderPath, latest.uid);
-                        if (fresh.unsubscribeUrl != null) httpUrl = fresh.unsubscribeUrl;
-                        if (fresh.unsubscribeMailto != null) mailtoUrl = fresh.unsubscribeMailto;
-                        oneClick = fresh.unsubscribeOneClick;
-                        fromBody = fresh.fromBody;
-                        db.updateEmailUnsubscribeInfo(
-                            accountId,
-                            folderPath,
-                            latest.uid,
-                            fresh.hasUnsubscribe || httpUrl != null || mailtoUrl != null,
-                            httpUrl,
-                            mailtoUrl,
-                            oneClick
-                        );
+                        List<AndroidImapEngine.UnsubscribeCandidate> live =
+                            imap.findLatestUnsubscribeCandidates(acc, secret, folderPath, matchValue, cachedUids, 5);
+                        for (AndroidImapEngine.UnsubscribeCandidate lc : live) {
+                            if (newestDateIso.isEmpty() && lc.dateIso != null && !lc.dateIso.isEmpty()) {
+                                newestDateIso = lc.dateIso;
+                            }
+                            if (cachedUidSet.contains(lc.uid)) {
+                                db.updateEmailUnsubscribeInfo(
+                                    accountId, folderPath, lc.uid, lc.info.hasUnsubscribe,
+                                    lc.info.unsubscribeUrl, lc.info.unsubscribeMailto, lc.info.unsubscribeOneClick
+                                );
+                            }
+                            addCandidate(candidates, seenKeys, lc.uid, lc.info.unsubscribeUrl,
+                                lc.info.unsubscribeMailto, lc.info.unsubscribeOneClick, lc.info.fromBody, lc.dateIso);
+                        }
                     } catch (Exception ignored) {}
                 }
 
-                JSObject res = new JSObject();
-                if (oneClick && httpUrl != null && AndroidImapEngine.sendOneClickPost(httpUrl)) {
-                    String at = db.markSenderUnsubscribed(accountId, matchValue, "one_click_post", httpUrl);
-                    res.put("status", "one_click_sent");
-                    res.put("method", "one_click_post");
-                    res.put("url", httpUrl);
-                    res.put("message", "Désinscription automatique 1-clic confirmée !");
-                    res.put("unsubscribedAt", at);
-                    call.resolve(res);
-                    return;
-                }
-
-                if (httpUrl != null) {
-                    String method = fromBody ? "body_link" : "https";
-                    if (openBrowserIfNeeded) {
-                        launchExternalUri(httpUrl);
-                        String at = db.markSenderUnsubscribed(accountId, matchValue, method, httpUrl);
-                        res.put("status", "opened_browser");
-                        res.put("method", method);
-                        res.put("url", httpUrl);
-                        res.put("message", "Page de désinscription ouverte dans le navigateur.");
-                        res.put("unsubscribedAt", at);
-                    } else {
-                        res.put("status", "opened_browser");
-                        res.put("method", method);
-                        res.put("url", httpUrl);
-                        res.put("message", "Confirmation web requise — clique sur le lien ci-dessous.");
-                        res.put("unsubscribedAt", JSONObject.NULL);
+                for (AndroidMailDatabase.LatestUnsubCache c : cachedList) {
+                    if (newestDateIso.isEmpty() && c.dateIso != null && !c.dateIso.isEmpty()) {
+                        newestDateIso = c.dateIso;
                     }
-                    call.resolve(res);
-                    return;
+                    addCandidate(candidates, seenKeys, c.uid, c.unsubscribeUrl,
+                        c.unsubscribeMailto, c.unsubscribeOneClick, false, c.dateIso);
                 }
 
-                if (mailtoUrl != null) {
-                    if (openBrowserIfNeeded) {
-                        launchExternalUri(mailtoUrl);
-                        String at = db.markSenderUnsubscribed(accountId, matchValue, "mailto", mailtoUrl);
-                        res.put("status", "opened_mailto");
-                        res.put("method", "mailto");
-                        res.put("url", mailtoUrl);
-                        res.put("message", "E-mail de désinscription préparé.");
-                        res.put("unsubscribedAt", at);
-                    } else {
-                        res.put("status", "opened_mailto");
-                        res.put("method", "mailto");
-                        res.put("url", mailtoUrl);
-                        res.put("message", "Envoi d'e-mail de désinscription requis.");
-                        res.put("unsubscribedAt", JSONObject.NULL);
+                String reqHttp = req.isNull("unsubscribeUrl") ? null : req.optString("unsubscribeUrl", null);
+                String reqMailto = req.isNull("unsubscribeMailto") ? null : req.optString("unsubscribeMailto", null);
+                boolean reqOneClick = req.optBoolean("unsubscribeOneClick", false);
+                addCandidate(candidates, seenKeys, 0L, reqHttp, reqMailto, reqOneClick, false, newestDateIso);
+
+                String lastFailureReason = null;
+                String lastFailedUrl = null;
+                String firstMailtoFallback = null;
+
+                for (CandidateSource cand : candidates) {
+                    if (firstMailtoFallback == null && cand.mailtoUrl != null) {
+                        firstMailtoFallback = cand.mailtoUrl;
                     }
-                    call.resolve(res);
+                    if (cand.httpUrl == null) continue;
+
+                    if (cand.oneClick && cand.httpUrl.startsWith("https://")) {
+                        AndroidImapEngine.HttpProbeResult postRes = AndroidImapEngine.probeHttp(cand.httpUrl, "POST");
+                        if (postRes.reachable && postRes.statusCode >= 200 && postRes.statusCode < 300) {
+                            if ("expired".equals(postRes.outcome)) {
+                                lastFailureReason = postRes.reason;
+                                lastFailedUrl = cand.httpUrl;
+                                continue;
+                            }
+                            String statusKey = "already_unsubscribed".equals(postRes.outcome)
+                                ? "already_unsubscribed" : "one_click_sent";
+                            String msg = "already_unsubscribed".equals(postRes.outcome)
+                                ? postRes.reason
+                                : "Désinscription automatique 1-clic vérifiée (HTTP " + postRes.statusCode + ").";
+                            String at = db.saveUnsubscribeStatus(
+                                accountId, matchValue, "confirmed", "one_click_post", postRes.finalUrl, msg
+                            );
+                            call.resolve(buildUnsubRes(statusKey, true, "one_click_post", postRes.finalUrl, msg, at));
+                            return;
+                        }
+                    }
+
+                    AndroidImapEngine.HttpProbeResult getRes = AndroidImapEngine.probeHttp(cand.httpUrl, "GET");
+                    if (!getRes.reachable) {
+                        lastFailureReason = getRes.reason;
+                        lastFailedUrl = cand.httpUrl;
+                        continue;
+                    }
+                    String method = cand.fromBody ? "body_link" : "https";
+                    if ("already_unsubscribed".equals(getRes.outcome)) {
+                        String at = db.saveUnsubscribeStatus(accountId, matchValue, "confirmed", method, getRes.finalUrl, getRes.reason);
+                        call.resolve(buildUnsubRes("already_unsubscribed", true, method, getRes.finalUrl, getRes.reason, at));
+                        return;
+                    }
+                    if ("confirmed".equals(getRes.outcome)) {
+                        String at = db.saveUnsubscribeStatus(accountId, matchValue, "confirmed", method, getRes.finalUrl, getRes.reason);
+                        call.resolve(buildUnsubRes("confirmed_get", true, method, getRes.finalUrl, getRes.reason, at));
+                        return;
+                    }
+                    if ("needs_manual".equals(getRes.outcome)) {
+                        db.saveUnsubscribeStatus(accountId, matchValue, "pending", method, getRes.finalUrl, getRes.reason);
+                        if (openBrowserIfNeeded) {
+                            launchExternalUri(getRes.finalUrl);
+                        }
+                        String msg = openBrowserIfNeeded
+                            ? "Page active vérifiée et ouverte : valide sur le site puis clique « C'est fait »."
+                            : "Page active vérifiée — ouvre le lien pour confirmer.";
+                        call.resolve(buildUnsubRes("opened_browser", false, method, getRes.finalUrl, msg, null));
+                        return;
+                    }
+                    lastFailureReason = getRes.reason;
+                    lastFailedUrl = cand.httpUrl;
+                }
+
+                if (firstMailtoFallback != null) {
+                    db.saveUnsubscribeStatus(
+                        accountId, matchValue, "pending", "mailto", firstMailtoFallback,
+                        "E-mail préparé — confirmation après envoi."
+                    );
+                    if (openBrowserIfNeeded) {
+                        launchExternalUri(firstMailtoFallback);
+                    }
+                    String msg = openBrowserIfNeeded
+                        ? "E-mail préparé : envoie-le puis clique sur « C'est fait »."
+                        : "Envoi d'e-mail de désinscription requis.";
+                    call.resolve(buildUnsubRes("opened_mailto", false, "mailto", firstMailtoFallback, msg, null));
                     return;
                 }
 
-                res.put("status", "not_found");
-                res.put("method", "none");
-                res.put("url", JSONObject.NULL);
-                res.put("message", "Aucun lien de désinscription détecté pour cet expéditeur.");
-                res.put("unsubscribedAt", JSONObject.NULL);
-                call.resolve(res);
+                if (lastFailureReason != null) {
+                    String ageHint = "";
+                    try {
+                        if (newestDateIso != null && !newestDateIso.isEmpty()) {
+                            java.text.SimpleDateFormat iso = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US);
+                            iso.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+                            java.util.Date parsedDt = iso.parse(newestDateIso.substring(0, Math.min(19, newestDateIso.length())));
+                            if (parsedDt != null) {
+                                long days = Math.max(0L, (System.currentTimeMillis() - parsedDt.getTime()) / 86_400_000L);
+                                if (days >= 60L) {
+                                    ageHint = " (dernier mail reçu il y a " + days + " jours : tu es probablement déjà désinscrit ou la campagne est terminée)";
+                                }
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                    String fullMsg = "Aucun lien valide trouvé : " + lastFailureReason + ageHint + ".";
+                    db.saveUnsubscribeStatus(accountId, matchValue, "failed", "https", lastFailedUrl, fullMsg);
+                    call.resolve(buildUnsubRes("expired", false, "https", lastFailedUrl, fullMsg, null));
+                    return;
+                }
+
+                call.resolve(buildUnsubRes(
+                    "not_found", false, "none", null,
+                    "Aucun lien de désinscription détecté sur les derniers messages.", null
+                ));
             } catch (Exception e) {
                 call.reject(e.getMessage() != null ? e.getMessage() : e.toString(), e);
             }
         });
+    }
+
+    private void addCandidate(
+        List<CandidateSource> list,
+        Set<String> seen,
+        long uid,
+        String rawHttp,
+        String rawMailto,
+        boolean oneClick,
+        boolean fromBody,
+        String dateIso
+    ) {
+        String cleanHttp = AndroidImapEngine.sanitizeHttpUrl(rawHttp);
+        String cleanMailto = AndroidImapEngine.sanitizeMailto(rawMailto);
+        if (cleanHttp == null && cleanMailto == null) return;
+        String key = (cleanHttp == null ? "" : cleanHttp) + "::" + (cleanMailto == null ? "" : cleanMailto) + "::" + (oneClick ? 1 : 0);
+        if (seen.contains(key)) return;
+        seen.add(key);
+        CandidateSource cs = new CandidateSource();
+        cs.uid = uid;
+        cs.httpUrl = cleanHttp;
+        cs.mailtoUrl = cleanMailto;
+        cs.oneClick = oneClick;
+        cs.fromBody = fromBody;
+        cs.dateIso = dateIso;
+        list.add(cs);
+    }
+
+    private JSObject buildUnsubRes(
+        String status,
+        boolean verified,
+        String method,
+        String url,
+        String message,
+        String unsubscribedAt
+    ) {
+        JSObject res = new JSObject();
+        res.put("status", status);
+        res.put("verified", verified);
+        res.put("method", method);
+        res.put("url", url == null ? JSONObject.NULL : url);
+        res.put("message", message);
+        res.put("unsubscribedAt", unsubscribedAt == null ? JSONObject.NULL : unsubscribedAt);
+        return res;
     }
 
     @PluginMethod

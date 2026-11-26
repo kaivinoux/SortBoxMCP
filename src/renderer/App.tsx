@@ -400,6 +400,7 @@ export default function App() {
                       unsubscribeUrl: group.unsubscribeUrl,
                       unsubscribeMailto: group.unsubscribeMailto,
                       unsubscribeOneClick: group.unsubscribeOneClick,
+                      latestDateIso: group.latestDateIso,
                     },
                     { openBrowserIfNeeded: true },
                   );
@@ -421,6 +422,7 @@ export default function App() {
                           unsubscribeUrl: group.unsubscribeUrl,
                           unsubscribeMailto: group.unsubscribeMailto,
                           unsubscribeOneClick: group.unsubscribeOneClick,
+                          latestDateIso: group.latestDateIso,
                         },
                         { openBrowserIfNeeded: false },
                       );
@@ -430,6 +432,7 @@ export default function App() {
                         group,
                         result: {
                           status: "error" as const,
+                          verified: false,
                           method: "none" as const,
                           url: null,
                           message: err instanceof Error ? err.message : String(err),
@@ -449,8 +452,10 @@ export default function App() {
                   await window.sortbox.emails.markUnsubscribed({
                     accountId: group.accountId,
                     senderKey,
+                    status: "confirmed",
                     method,
                     targetUrl,
+                    detail: "Confirmé manuellement par l'utilisateur",
                   });
                   await refreshData();
                 }}

@@ -548,58 +548,103 @@ export class ImapConnector {
     return { movedCount, destUids, resolvedDest };
   }
 
-  async fetchLatestUnsubscribeInfo(
-    account: MailAccount,
-    folderPath: string,
-    uid: number,
-  ): Promise<ParsedUnsubscribeInfo & { fromBody: boolean }> {
-    const secret = await this.resolveAuthSecret(account);
-    const client = this.buildClient(account, secret);
+  async findLatestUnsubscribeCandidates(params: {
+    account: MailAccount;
+    folderPath: string;
+    matchValue: string;
+    cachedUids: number[];
+    limit?: number;
+  }): Promise<Array<ParsedUnsubscribeInfo & { uid: number; fromBody: boolean; dateIso: string }>> {
+    const secret = await this.resolveAuthSecret(params.account);
+    const client = this.buildClient(params.account, secret);
+    const maxCandidates = Math.min(Math.max(params.limit ?? 5, 1), 8);
 
     try {
       await client.connect();
-      const lock = await client.getMailboxLock(folderPath, { readOnly: true });
+      const lock = await client.getMailboxLock(params.folderPath, { readOnly: true });
       try {
-        let headerInfo: ParsedUnsubscribeInfo = {
-          hasUnsubscribe: false,
-          unsubscribeUrl: null,
-          unsubscribeMailto: null,
-          unsubscribeOneClick: false,
-        };
+        let serverUids: number[] = [];
+        const cleanSearch = params.matchValue.trim();
+        if (cleanSearch) {
+          try {
+            const matched = await client.search({ from: cleanSearch }, { uid: true });
+            if (Array.isArray(matched)) {
+              serverUids = matched;
+            }
+          } catch {
+            // Fallback to cached UIDs if server SEARCH FROM is unsupported
+          }
+        }
+
+        const merged = Array.from(
+          new Set([...serverUids, ...params.cachedUids].filter((u) => Number.isInteger(u) && u > 0)),
+        )
+          .sort((a, b) => b - a)
+          .slice(0, maxCandidates);
+
+        if (!merged.length) return [];
+
+        const results: Array<
+          ParsedUnsubscribeInfo & { uid: number; fromBody: boolean; dateIso: string }
+        > = [];
+        const needBodyUids: Array<{ uid: number; hasHeaderUnsub: boolean; dateIso: string }> = [];
 
         for await (const msg of client.fetch(
-          [uid],
+          merged,
           {
             uid: true,
+            envelope: true,
+            internalDate: true,
             headers: ["list-unsubscribe", "list-unsubscribe-post"],
           },
           { uid: true },
         )) {
-          headerInfo = parseListUnsubscribeFromHeaderBlock(msg.headers);
-        }
-
-        if (headerInfo.unsubscribeUrl || headerInfo.unsubscribeMailto) {
-          return { ...headerInfo, fromBody: false };
-        }
-
-        // Fallback: inspect only this single message source for footer unsubscribe links
-        for await (const msg of client.fetch(
-          [uid],
-          { uid: true, source: true },
-          { uid: true },
-        )) {
-          if (msg.source) {
-            const raw = msg.source.subarray(0, 512 * 1024).toString("utf8");
-            const bodyInfo = extractUnsubscribeFromRawMessage(raw);
-            return {
-              ...bodyInfo,
-              hasUnsubscribe: bodyInfo.hasUnsubscribe || headerInfo.hasUnsubscribe,
-              fromBody: Boolean(bodyInfo.unsubscribeUrl || bodyInfo.unsubscribeMailto),
-            };
+          const dt = msg.envelope?.date
+            ? new Date(msg.envelope.date)
+            : msg.internalDate
+              ? new Date(msg.internalDate)
+              : null;
+          const dateIso = dt && !Number.isNaN(dt.getTime()) ? dt.toISOString() : "";
+          const headerInfo = parseListUnsubscribeFromHeaderBlock(msg.headers);
+          if (headerInfo.unsubscribeUrl || headerInfo.unsubscribeMailto) {
+            results.push({
+              ...headerInfo,
+              uid: msg.uid,
+              fromBody: false,
+              dateIso,
+            });
+          } else {
+            needBodyUids.push({
+              uid: msg.uid,
+              hasHeaderUnsub: headerInfo.hasUnsubscribe,
+              dateIso,
+            });
           }
         }
 
-        return { ...headerInfo, fromBody: false };
+        for (const item of needBodyUids.slice(0, 3)) {
+          for await (const msg of client.fetch(
+            [item.uid],
+            { uid: true, source: true },
+            { uid: true },
+          )) {
+            if (msg.source) {
+              const raw = msg.source.subarray(0, 512 * 1024).toString("utf8");
+              const bodyInfo = extractUnsubscribeFromRawMessage(raw);
+              if (bodyInfo.unsubscribeUrl || bodyInfo.unsubscribeMailto) {
+                results.push({
+                  ...bodyInfo,
+                  hasUnsubscribe: bodyInfo.hasUnsubscribe || item.hasHeaderUnsub,
+                  uid: item.uid,
+                  fromBody: true,
+                  dateIso: item.dateIso,
+                });
+              }
+            }
+          }
+        }
+
+        return results.sort((a, b) => b.uid - a.uid);
       } finally {
         lock.release();
       }

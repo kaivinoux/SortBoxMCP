@@ -104,19 +104,57 @@ describe("AppDatabase (SQLite + FTS5)", () => {
     expect(db.searchEmailsFts("imposition", "acc1")).toHaveLength(0);
   });
 
-  it("tracks unsubscribed senders across sender and domain groupings", () => {
+  it("tracks unsubscribed senders across sender and domain groupings and picks newest URL", () => {
+    db.upsertEmails([
+      {
+        accountId: "acc1",
+        folderPath: "INBOX",
+        uid: 99,
+        messageId: "<m99@promo>",
+        fromRaw: "Promo <promo@boutique.fr>",
+        fromName: "Promo",
+        fromAddr: "promo@boutique.fr",
+        domain: "boutique.fr",
+        toRaw: "user@orange.fr",
+        subject: "Offre plus récente",
+        dateIso: "2026-11-25T10:00:00.000Z",
+        dateTs: 1795600800000,
+        sizeBytes: 12000,
+        seen: false,
+        flagged: false,
+        hasUnsubscribe: true,
+        unsubscribeUrl: "https://boutique.fr/aa-newest-token",
+      },
+    ]);
+
+    const beforeGroups = db.querySenderGroups({ accountId: "acc1", folderPath: "INBOX" });
+    const promoBefore = beforeGroups.find((g) => g.fromAddr === "promo@boutique.fr");
+    // Even though "aa-newest-token" < "unsub" lexicographically, it must win because dateTs is newest
+    expect(promoBefore?.unsubscribeUrl).toBe("https://boutique.fr/aa-newest-token");
+
+    db.saveUnsubscribeStatus({
+      accountId: "acc1",
+      senderKey: "dgfip.finances.gouv.fr",
+      status: "pending",
+      method: "https",
+      targetUrl: "https://dgfip.fr/prefs",
+      detail: "À confirmer",
+    });
+
     const ts = db.markSenderUnsubscribed(
       "acc1",
       "promo@boutique.fr",
       "one_click_post",
-      "https://boutique.fr/unsub",
+      "https://boutique.fr/aa-newest-token",
     );
     expect(ts).toBeTruthy();
 
     const groups = db.querySenderGroups({ accountId: "acc1", folderPath: "INBOX" });
     const promo = groups.find((g) => g.fromAddr === "promo@boutique.fr");
     const dgfip = groups.find((g) => g.domain === "dgfip.finances.gouv.fr");
+    expect(promo?.unsubscribeStatus).toBe("confirmed");
     expect(promo?.unsubscribedAt).toBe(ts);
+    expect(dgfip?.unsubscribeStatus).toBe("pending");
     expect(dgfip?.unsubscribedAt).toBeNull();
   });
 });

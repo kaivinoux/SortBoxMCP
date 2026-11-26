@@ -102,6 +102,9 @@ export function TriageView({
   const [unsubFeedback, setUnsubFeedback] = useState<{
     kind: "ok" | "info" | "warn";
     text: string;
+    pendingGroup?: SenderGroup;
+    pendingMethod?: string;
+    pendingUrl?: string | null;
   } | null>(null);
   const [batchOutcomes, setBatchOutcomes] = useState<BatchUnsubOutcome[]>([]);
 
@@ -224,7 +227,7 @@ export function TriageView({
         queryOpts.groupBy === "domain"
           ? group.domain || group.groupKey
           : group.fromAddr || group.groupKey;
-      if (res.status === "one_click_sent") {
+      if (res.verified) {
         setUnsubFeedback({
           kind: "ok",
           text: `${label} : ${res.message}`,
@@ -233,11 +236,17 @@ export function TriageView({
         setUnsubFeedback({
           kind: "info",
           text: `${label} : ${res.message}`,
+          pendingGroup: group,
+          pendingMethod: res.method,
+          pendingUrl: res.url,
         });
       } else {
         setUnsubFeedback({
           kind: "warn",
           text: `${label} : ${res.message}`,
+          pendingGroup: res.status === "expired" ? group : undefined,
+          pendingMethod: "manual",
+          pendingUrl: res.url,
         });
       }
     } catch (err) {
@@ -257,18 +266,19 @@ export function TriageView({
     try {
       const results = await onUnsubscribeBatch(selectedItems);
       setBatchOutcomes(results);
-      const autoCount = results.filter(
-        (r) => r.result.status === "one_click_sent",
-      ).length;
+      const verifiedCount = results.filter((r) => r.result.verified).length;
       const manualCount = results.filter(
         (r) =>
           r.result.status === "opened_browser" ||
           r.result.status === "opened_mailto",
       ).length;
-      const noneCount = results.length - autoCount - manualCount;
+      const expiredCount = results.filter(
+        (r) => r.result.status === "expired",
+      ).length;
+      const noneCount = results.length - verifiedCount - manualCount - expiredCount;
       setUnsubFeedback({
-        kind: autoCount > 0 ? "ok" : "info",
-        text: `Lot terminé : ${autoCount} désinscription(s) 1-clic envoyée(s), ${manualCount} à ouvrir ci-dessous, ${noneCount} sans lien détecté.`,
+        kind: verifiedCount > 0 ? "ok" : manualCount > 0 ? "info" : "warn",
+        text: `Vérification terminée : ${verifiedCount} confirmé(s), ${manualCount} à confirmer dans le navigateur, ${expiredCount} lien(s) expiré(s), ${noneCount} sans lien.`,
       });
       setSelectedKeys(new Set());
     } finally {
@@ -280,6 +290,24 @@ export function TriageView({
     const outcome = batchOutcomes[idx];
     if (!outcome?.result.url) return;
     await window.sortbox.app.openExternal(outcome.result.url);
+    setBatchOutcomes((prev) =>
+      prev.map((item, i) =>
+        i === idx
+          ? {
+              ...item,
+              result: {
+                ...item.result,
+                message: "Ouvert — valide sur le site puis clique « C'est fait » ou « Vérifier ».",
+              },
+            }
+          : item,
+      ),
+    );
+  }
+
+  async function handleConfirmBatchOutcome(idx: number) {
+    const outcome = batchOutcomes[idx];
+    if (!outcome) return;
     await onMarkUnsubscribedManual(
       outcome.group,
       outcome.result.method,
@@ -296,9 +324,11 @@ export function TriageView({
     const actionable = batchOutcomes
       .filter(
         (o) =>
-          o.result.status === "one_click_sent" ||
+          o.result.verified ||
+          o.handledManually ||
           o.result.status === "opened_browser" ||
-          o.result.status === "opened_mailto",
+          o.result.status === "opened_mailto" ||
+          o.result.status === "expired",
       )
       .map((o) => o.group);
     if (!actionable.length) return;
@@ -527,7 +557,7 @@ export function TriageView({
         {/* Unsubscribe feedback & batch follow-up */}
         {unsubFeedback && (
           <div
-            className={`p-3 rounded-lg border text-xs flex items-center justify-between gap-2 ${
+            className={`p-3 rounded-lg border text-xs flex flex-wrap items-center justify-between gap-2 ${
               unsubFeedback.kind === "ok"
                 ? "bg-emerald-950/40 border-emerald-700/80 text-emerald-200"
                 : unsubFeedback.kind === "info"
@@ -536,13 +566,47 @@ export function TriageView({
             }`}
           >
             <span>{unsubFeedback.text}</span>
-            <button
-              type="button"
-              onClick={() => setUnsubFeedback(null)}
-              className="underline cursor-pointer shrink-0"
-            >
-              Fermer
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {unsubFeedback.pendingGroup && (
+                <>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const g = unsubFeedback.pendingGroup!;
+                      await onMarkUnsubscribedManual(
+                        g,
+                        unsubFeedback.pendingMethod || "manual",
+                        unsubFeedback.pendingUrl ?? null,
+                      );
+                      setUnsubFeedback({
+                        kind: "ok",
+                        text: `${g.fromAddr || g.domain || g.groupKey} : marqué comme désinscrit / réglé.`,
+                      });
+                    }}
+                    className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-3 h-3" />
+                    {unsubFeedback.kind === "warn" ? "Marquer réglé" : "C'est fait"}
+                  </button>
+                  {unsubFeedback.kind === "info" && (
+                    <button
+                      type="button"
+                      onClick={() => handleUnsubscribeOne(unsubFeedback.pendingGroup!)}
+                      className="px-2 py-1 rounded border border-sky-600/80 hover:bg-sky-900/40 text-sky-200 cursor-pointer"
+                    >
+                      Re-vérifier
+                    </button>
+                  )}
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => setUnsubFeedback(null)}
+                className="underline cursor-pointer shrink-0"
+              >
+                Fermer
+              </button>
+            </div>
           </div>
         )}
 
@@ -555,9 +619,11 @@ export function TriageView({
               <div className="flex items-center gap-2">
                 {batchOutcomes.some(
                   (o) =>
-                    o.result.status === "one_click_sent" ||
+                    o.result.verified ||
+                    o.handledManually ||
                     o.result.status === "opened_browser" ||
-                    o.result.status === "opened_mailto",
+                    o.result.status === "opened_mailto" ||
+                    o.result.status === "expired",
                 ) && (
                   <button
                     type="button"
@@ -597,26 +663,46 @@ export function TriageView({
                       <span className="font-medium text-slate-200">{label}</span>{" "}
                       <span className="text-slate-400">— {o.result.message}</span>
                     </div>
-                    {o.result.status === "one_click_sent" || o.handledManually ? (
+                    {o.result.verified || o.handledManually ? (
                       <span className="text-emerald-300 inline-flex items-center gap-1 shrink-0 font-semibold">
                         <CheckCircle2 className="w-3.5 h-3.5" />
-                        Désinscrit
+                        Confirmé
                       </span>
                     ) : needsManualLink ? (
-                      <button
-                        type="button"
-                        onClick={() => handleOpenBatchLink(idx)}
-                        className="px-2.5 py-1 rounded bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold inline-flex items-center gap-1 cursor-pointer shrink-0"
-                      >
-                        {o.result.status === "opened_mailto" ? (
-                          <Mail className="w-3 h-3" />
-                        ) : (
-                          <ExternalLink className="w-3 h-3" />
-                        )}
-                        {o.result.status === "opened_mailto"
-                          ? "Ouvrir l'e-mail"
-                          : "Ouvrir le lien"}
-                      </button>
+                      <div className="inline-flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenBatchLink(idx)}
+                          className="px-2.5 py-1 rounded bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          {o.result.status === "opened_mailto" ? (
+                            <Mail className="w-3 h-3" />
+                          ) : (
+                            <ExternalLink className="w-3 h-3" />
+                          )}
+                          {o.result.status === "opened_mailto"
+                            ? "Ouvrir l'e-mail"
+                            : "Ouvrir"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleConfirmBatchOutcome(idx)}
+                          className="px-2 py-1 rounded border border-emerald-700 bg-emerald-950/50 hover:bg-emerald-900/60 text-emerald-200 font-semibold cursor-pointer"
+                        >
+                          C'est fait
+                        </button>
+                      </div>
+                    ) : o.result.status === "expired" ? (
+                      <div className="inline-flex items-center gap-1.5 shrink-0">
+                        <span className="text-rose-300">Expiré / 404</span>
+                        <button
+                          type="button"
+                          onClick={() => handleConfirmBatchOutcome(idx)}
+                          className="px-2 py-1 rounded border border-slate-700 hover:bg-slate-800 text-slate-300 cursor-pointer"
+                        >
+                          Marquer réglé
+                        </button>
+                      </div>
                     ) : (
                       <span className="text-slate-500 shrink-0">Aucun lien</span>
                     )}
@@ -678,13 +764,32 @@ export function TriageView({
                               ? g.domain || g.groupKey
                               : g.fromAddr || g.groupKey}
                           </span>
-                          {g.unsubscribedAt ? (
+                          {g.unsubscribeStatus === "confirmed" || g.unsubscribedAt ? (
                             <span
-                              title={`Désinscrit le ${new Date(g.unsubscribedAt).toLocaleString("fr-FR")}`}
+                              title={
+                                g.unsubscribeStatusDetail ||
+                                (g.unsubscribedAt
+                                  ? `Désinscrit le ${new Date(g.unsubscribedAt).toLocaleString("fr-FR")}`
+                                  : "Désinscription confirmée")
+                              }
                               className="px-1.5 py-0.5 text-[10px] rounded-full bg-emerald-950/70 border border-emerald-700/80 text-emerald-300 inline-flex items-center gap-0.5 shrink-0"
                             >
                               <CheckCircle2 className="w-2.5 h-2.5" />
                               Désinscrit
+                            </span>
+                          ) : g.unsubscribeStatus === "pending" ? (
+                            <span
+                              title={g.unsubscribeStatusDetail || "Page ouverte — confirmation requise"}
+                              className="px-1.5 py-0.5 text-[10px] rounded-full bg-sky-950/70 border border-sky-700/80 text-sky-300 shrink-0"
+                            >
+                              À confirmer
+                            </span>
+                          ) : g.unsubscribeStatus === "failed" ? (
+                            <span
+                              title={g.unsubscribeStatusDetail || "Lien expiré ou introuvable"}
+                              className="px-1.5 py-0.5 text-[10px] rounded-full bg-rose-950/70 border border-rose-700/80 text-rose-300 shrink-0"
+                            >
+                              Lien expiré
                             </span>
                           ) : g.unsubscribeOneClick ? (
                             <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-indigo-950/70 border border-indigo-700/80 text-indigo-300 shrink-0">
@@ -720,23 +825,48 @@ export function TriageView({
                       </td>
                       <td className="py-2.5 text-right">
                         <div className="inline-flex items-center gap-1.5">
+                          {g.unsubscribeStatus === "pending" && (
+                            <button
+                              type="button"
+                              title="Confirmer manuellement que tu as validé sur le site"
+                              onClick={() =>
+                                onMarkUnsubscribedManual(
+                                  g,
+                                  "manual",
+                                  g.unsubscribeUrl ?? null,
+                                )
+                              }
+                              className="px-2 py-1 rounded border border-emerald-700/80 bg-emerald-950/50 text-emerald-200 hover:bg-emerald-900/50 inline-flex items-center gap-1 cursor-pointer"
+                            >
+                              <CheckCircle2 className="w-3 h-3" />
+                              C'est fait
+                            </button>
+                          )}
                           <button
                             type="button"
                             disabled={unsubBusyKey === key}
                             title={
-                              g.unsubscribedAt
-                                ? "Relancer ou vérifier la désinscription"
-                                : g.hasUnsubscribe
-                                  ? "Se désinscrire de cette newsletter"
-                                  : "Chercher un lien de désinscription dans le dernier mail"
+                              g.unsubscribeStatus === "confirmed" || g.unsubscribedAt
+                                ? "Vérifier à nouveau la désinscription"
+                                : g.unsubscribeStatus === "pending"
+                                  ? "Re-vérifier sur le site ou rouvrir le lien le plus récent"
+                                  : g.unsubscribeStatus === "failed"
+                                    ? "Rechercher un lien plus récent sur le serveur IMAP"
+                                    : g.hasUnsubscribe
+                                      ? "Trouver le lien le plus récent, vérifier et se désinscrire"
+                                      : "Chercher un lien de désinscription dans les mails récents"
                             }
                             onClick={() => handleUnsubscribeOne(g)}
                             className={`px-2 py-1 rounded border inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 ${
-                              g.unsubscribedAt
+                              g.unsubscribeStatus === "confirmed" || g.unsubscribedAt
                                 ? "border-emerald-800/70 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/40"
-                                : g.hasUnsubscribe
-                                  ? "border-amber-700/80 bg-amber-950/50 text-amber-200 hover:bg-amber-900/60"
-                                  : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
+                                : g.unsubscribeStatus === "pending"
+                                  ? "border-sky-700/80 bg-sky-950/50 text-sky-200 hover:bg-sky-900/50"
+                                  : g.unsubscribeStatus === "failed"
+                                    ? "border-rose-700/80 bg-rose-950/50 text-rose-200 hover:bg-rose-900/50"
+                                    : g.hasUnsubscribe
+                                      ? "border-amber-700/80 bg-amber-950/50 text-amber-200 hover:bg-amber-900/60"
+                                      : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
                             }`}
                           >
                             <BellOff
@@ -745,12 +875,16 @@ export function TriageView({
                               }`}
                             />
                             {unsubBusyKey === key
-                              ? "..."
-                              : g.unsubscribedAt
-                                ? "Désinscrit"
-                                : g.hasUnsubscribe
-                                  ? "Se désinscrire"
-                                  : "Désinscrire ?"}
+                              ? "Vérif..."
+                              : g.unsubscribeStatus === "confirmed" || g.unsubscribedAt
+                                ? "Vérifier"
+                                : g.unsubscribeStatus === "pending"
+                                  ? "Vérifier"
+                                  : g.unsubscribeStatus === "failed"
+                                    ? "Réessayer"
+                                    : g.hasUnsubscribe
+                                      ? "Se désinscrire"
+                                      : "Désinscrire ?"}
                           </button>
                           <button
                             type="button"

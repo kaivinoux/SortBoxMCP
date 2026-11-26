@@ -21,7 +21,7 @@ import org.json.JSONObject;
 
 public class AndroidMailDatabase extends SQLiteOpenHelper {
     private static final String DB_NAME = "sortbox_mobile.sqlite";
-    private static final int DB_VERSION = 2;
+    private static final int DB_VERSION = 3;
 
     public AndroidMailDatabase(Context context) {
         super(context, DB_NAME, null, DB_VERSION);
@@ -94,7 +94,8 @@ public class AndroidMailDatabase extends SQLiteOpenHelper {
         db.execSQL(
             "CREATE TABLE IF NOT EXISTS unsubscribed_senders (" +
             "account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, " +
-            "sender_key TEXT NOT NULL, method TEXT NOT NULL, target_url TEXT, " +
+            "sender_key TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'confirmed', " +
+            "method TEXT NOT NULL, target_url TEXT, detail TEXT, " +
             "unsubscribed_at TEXT NOT NULL, PRIMARY KEY (account_id, sender_key))"
         );
     }
@@ -117,9 +118,23 @@ public class AndroidMailDatabase extends SQLiteOpenHelper {
         db.execSQL(
             "CREATE TABLE IF NOT EXISTS unsubscribed_senders (" +
             "account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, " +
-            "sender_key TEXT NOT NULL, method TEXT NOT NULL, target_url TEXT, " +
+            "sender_key TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'confirmed', " +
+            "method TEXT NOT NULL, target_url TEXT, detail TEXT, " +
             "unsubscribed_at TEXT NOT NULL, PRIMARY KEY (account_id, sender_key))"
         );
+        Set<String> unsubCols = new HashSet<>();
+        try (Cursor c = db.rawQuery("PRAGMA table_info(unsubscribed_senders)", null)) {
+            int nameIdx = c.getColumnIndex("name");
+            while (c.moveToNext() && nameIdx >= 0) {
+                unsubCols.add(c.getString(nameIdx));
+            }
+        }
+        if (!unsubCols.contains("status")) {
+            db.execSQL("ALTER TABLE unsubscribed_senders ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'");
+        }
+        if (!unsubCols.contains("detail")) {
+            db.execSQL("ALTER TABLE unsubscribed_senders ADD COLUMN detail TEXT");
+        }
     }
 
     public synchronized JSArray listAccounts() {
@@ -367,39 +382,61 @@ public class AndroidMailDatabase extends SQLiteOpenHelper {
             "MAX(e.from_addr) AS from_addr, MAX(e.from_name) AS from_name, MAX(e.domain) AS domain, " +
             "COUNT(*) AS total_count, SUM(CASE WHEN e.seen = 0 THEN 1 ELSE 0 END) AS unread_count, " +
             "SUM(e.size_bytes) AS total_size_bytes, MAX(e.has_unsubscribe) AS has_unsubscribe, " +
-            "MAX(e.unsubscribe_url) AS unsubscribe_url, MAX(e.unsubscribe_mailto) AS unsubscribe_mailto, " +
-            "MAX(e.unsubscribe_one_click) AS unsubscribe_one_click, MAX(u.unsubscribed_at) AS unsubscribed_at, " +
+            "SUBSTR(MAX(CASE WHEN e.unsubscribe_url IS NOT NULL AND e.unsubscribe_url <> '' THEN printf('%016d|%010d|%s', CASE WHEN e.date_ts > 0 THEN e.date_ts ELSE 0 END, e.uid, e.unsubscribe_url) END), 29) AS unsubscribe_url, " +
+            "SUBSTR(MAX(CASE WHEN e.unsubscribe_mailto IS NOT NULL AND e.unsubscribe_mailto <> '' THEN printf('%016d|%010d|%s', CASE WHEN e.date_ts > 0 THEN e.date_ts ELSE 0 END, e.uid, e.unsubscribe_mailto) END), 29) AS unsubscribe_mailto, " +
+            "SUBSTR(MAX(CASE WHEN e.unsubscribe_url IS NOT NULL AND e.unsubscribe_url <> '' THEN printf('%016d|%010d|%d', CASE WHEN e.date_ts > 0 THEN e.date_ts ELSE 0 END, e.uid, e.unsubscribe_one_click) END), 29, 1) AS unsubscribe_one_click, " +
             "MAX(e.date_iso) AS latest_date_iso, GROUP_CONCAT(DISTINCT e.subject) AS joined_subjects " +
-            "FROM emails e JOIN accounts a ON a.id = e.account_id " +
-            "LEFT JOIN unsubscribed_senders u ON u.account_id = e.account_id " +
-            "AND (u.sender_key = LOWER(e.from_addr) OR (e.domain <> '' AND u.sender_key = LOWER(e.domain))) " +
-            where +
+            "FROM emails e JOIN accounts a ON a.id = e.account_id " + where +
             " GROUP BY e.account_id, e.folder_path, " + keyExpr +
             " ORDER BY total_count DESC LIMIT ?";
+
+        java.util.Map<String, String[]> unsubMap = new java.util.HashMap<>();
+        try (Cursor uc = getReadableDatabase().rawQuery(
+            "SELECT account_id, sender_key, status, detail, unsubscribed_at FROM unsubscribed_senders", null
+        )) {
+            while (uc.moveToNext()) {
+                String k = nonNull(uc.getString(0)) + "::" + nonNull(uc.getString(1)).toLowerCase(Locale.US);
+                unsubMap.put(k, new String[] {
+                    nonNull(uc.getString(2)),
+                    uc.isNull(3) ? null : uc.getString(3),
+                    nonNull(uc.getString(4))
+                });
+            }
+        }
 
         JSArray arr = new JSArray();
         try (Cursor c = getReadableDatabase().rawQuery(sql, args.toArray(new String[0]))) {
             while (c.moveToNext()) {
+                String accId = nonNull(c.getString(1));
+                String fromAddr = nonNull(c.getString(4));
+                String domain = nonNull(c.getString(6));
                 JSObject row = new JSObject();
                 row.put("groupKey", nonNull(c.getString(0)));
-                row.put("accountId", nonNull(c.getString(1)));
+                row.put("accountId", accId);
                 row.put("accountEmail", nonNull(c.getString(2)));
                 row.put("folderPath", nonNull(c.getString(3)));
-                row.put("fromAddr", nonNull(c.getString(4)));
+                row.put("fromAddr", fromAddr);
                 row.put("fromName", nonNull(c.getString(5)));
-                row.put("domain", nonNull(c.getString(6)));
+                row.put("domain", domain);
                 row.put("totalCount", c.getInt(7));
                 row.put("unreadCount", c.getInt(8));
                 row.put("totalSizeBytes", c.getLong(9));
                 row.put("hasUnsubscribe", c.getInt(10) != 0);
-                row.put("unsubscribeUrl", c.isNull(11) ? JSONObject.NULL : c.getString(11));
-                row.put("unsubscribeMailto", c.isNull(12) ? JSONObject.NULL : c.getString(12));
-                row.put("unsubscribeOneClick", c.getInt(13) != 0);
-                row.put("unsubscribedAt", c.isNull(14) ? JSONObject.NULL : c.getString(14));
-                row.put("latestDateIso", nonNull(c.getString(15)));
+                row.put("unsubscribeUrl", c.isNull(11) || c.getString(11).isEmpty() ? JSONObject.NULL : c.getString(11));
+                row.put("unsubscribeMailto", c.isNull(12) || c.getString(12).isEmpty() ? JSONObject.NULL : c.getString(12));
+                row.put("unsubscribeOneClick", "1".equals(c.getString(13)));
+
+                String[] byAddr = !fromAddr.isEmpty() ? unsubMap.get(accId + "::" + fromAddr.toLowerCase(Locale.US)) : null;
+                String[] byDom = !domain.isEmpty() ? unsubMap.get(accId + "::" + domain.toLowerCase(Locale.US)) : null;
+                String[] chosen = pickHigherUnsub(byAddr, byDom);
+                String st = chosen != null ? chosen[0] : null;
+                row.put("unsubscribeStatus", st == null ? JSONObject.NULL : st);
+                row.put("unsubscribeStatusDetail", chosen != null && chosen[1] != null ? chosen[1] : JSONObject.NULL);
+                row.put("unsubscribedAt", "confirmed".equals(st) && chosen != null ? chosen[2] : JSONObject.NULL);
+                row.put("latestDateIso", nonNull(c.getString(14)));
 
                 JSArray samples = new JSArray();
-                String joined = nonNull(c.getString(16));
+                String joined = nonNull(c.getString(15));
                 if (!joined.isEmpty()) {
                     String[] parts = joined.split(",");
                     for (int i = 0; i < parts.length && samples.length() < 3; i++) {
@@ -414,38 +451,56 @@ public class AndroidMailDatabase extends SQLiteOpenHelper {
         return arr;
     }
 
+    private int rankStatus(String s) {
+        if ("confirmed".equals(s)) return 3;
+        if ("pending".equals(s)) return 2;
+        if ("failed".equals(s)) return 1;
+        return 0;
+    }
+
+    private String[] pickHigherUnsub(String[] a, String[] b) {
+        if (a == null) return b;
+        if (b == null) return a;
+        return rankStatus(a[0]) >= rankStatus(b[0]) ? a : b;
+    }
+
     public static class LatestUnsubCache {
         public long uid;
         public boolean hasUnsubscribe;
         public String unsubscribeUrl;
         public String unsubscribeMailto;
         public boolean unsubscribeOneClick;
+        public String dateIso;
     }
 
-    public synchronized LatestUnsubCache getLatestEmailForGroup(
+    public synchronized List<LatestUnsubCache> getCandidateEmailsForGroup(
         String accountId,
         String folderPath,
         String matchType,
-        String matchValue
+        String matchValue,
+        int limit
     ) {
         String arg = matchValue == null ? "" : matchValue.trim().toLowerCase(Locale.US);
         String col = "domain".equals(matchType) ? "LOWER(domain)" : "LOWER(from_addr)";
+        int safeLim = Math.min(Math.max(limit > 0 ? limit : 6, 1), 15);
         String sql =
-            "SELECT uid, has_unsubscribe, unsubscribe_url, unsubscribe_mailto, unsubscribe_one_click " +
+            "SELECT uid, has_unsubscribe, unsubscribe_url, unsubscribe_mailto, unsubscribe_one_click, date_iso " +
             "FROM emails WHERE account_id = ? AND folder_path = ? AND " + col + " = ? " +
-            "ORDER BY date_ts DESC, uid DESC LIMIT 1";
-        try (Cursor c = getReadableDatabase().rawQuery(sql, new String[] { accountId, folderPath, arg })) {
-            if (c.moveToFirst()) {
+            "ORDER BY date_ts DESC, uid DESC LIMIT ?";
+        List<LatestUnsubCache> out = new ArrayList<>();
+        try (Cursor c = getReadableDatabase().rawQuery(sql, new String[] { accountId, folderPath, arg, String.valueOf(safeLim) })) {
+            while (c.moveToNext()) {
                 LatestUnsubCache cache = new LatestUnsubCache();
                 cache.uid = c.getLong(0);
                 cache.hasUnsubscribe = c.getInt(1) != 0;
                 cache.unsubscribeUrl = c.isNull(2) ? null : c.getString(2);
                 cache.unsubscribeMailto = c.isNull(3) ? null : c.getString(3);
                 cache.unsubscribeOneClick = c.getInt(4) != 0;
-                return cache;
+                cache.dateIso = nonNull(c.getString(5));
+                out.add(cache);
             }
         }
-        return null;
+        return out;
     }
 
     public synchronized void updateEmailUnsubscribeInfo(
@@ -472,20 +527,25 @@ public class AndroidMailDatabase extends SQLiteOpenHelper {
         );
     }
 
-    public synchronized String markSenderUnsubscribed(
+    public synchronized String saveUnsubscribeStatus(
         String accountId,
         String senderKey,
+        String status,
         String method,
-        String targetUrl
+        String targetUrl,
+        String detail
     ) {
         String now = nowIso();
         String normKey = senderKey == null ? "" : senderKey.trim().toLowerCase(Locale.US);
         ContentValues cv = new ContentValues();
         cv.put("account_id", accountId);
         cv.put("sender_key", normKey);
+        cv.put("status", status == null || status.isEmpty() ? "confirmed" : status);
         cv.put("method", method == null ? "manual" : method);
         if (targetUrl != null) cv.put("target_url", targetUrl);
         else cv.putNull("target_url");
+        if (detail != null) cv.put("detail", detail);
+        else cv.putNull("detail");
         cv.put("unsubscribed_at", now);
         getWritableDatabase().insertWithOnConflict("unsubscribed_senders", null, cv, SQLiteDatabase.CONFLICT_REPLACE);
         return now;

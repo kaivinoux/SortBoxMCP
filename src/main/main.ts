@@ -14,7 +14,11 @@ import type {
   UnsubscribeRequest,
   UnsubscribeResult,
 } from "../shared/types.js";
-import { sanitizeUnsubscribeMailto } from "../shared/unsubscribeUtils.js";
+import {
+  classifyUnsubscribeHttpResponse,
+  sanitizeUnsubscribeHttpUrl,
+  sanitizeUnsubscribeMailto,
+} from "../shared/unsubscribeUtils.js";
 import { runMicrosoftPkceLogin } from "./credentials/microsoftOAuth.js";
 import { SecretVault, type EncryptionProvider } from "./credentials/vault.js";
 import { AppDatabase } from "./db/database.js";
@@ -298,16 +302,20 @@ async function boot(): Promise<void> {
       params: {
         accountId: string;
         senderKey: string;
+        status?: "confirmed" | "pending" | "failed";
         method?: string;
         targetUrl?: string | null;
+        detail?: string | null;
       },
     ) =>
-      db.markSenderUnsubscribed(
-        params.accountId,
-        params.senderKey,
-        params.method || "manual",
-        params.targetUrl ?? null,
-      ),
+      db.saveUnsubscribeStatus({
+        accountId: params.accountId,
+        senderKey: params.senderKey,
+        status: params.status || "confirmed",
+        method: params.method || "manual",
+        targetUrl: params.targetUrl ?? null,
+        detail: params.detail ?? null,
+      }),
   );
 
   ipcMain.handle(
@@ -323,133 +331,319 @@ async function boot(): Promise<void> {
           ? (req.domain || req.groupKey).trim().toLowerCase()
           : (req.fromAddr || req.groupKey).trim().toLowerCase();
 
-      const latest = db.getLatestEmailForGroup({
+      const cachedList = db.getCandidateEmailsForGroup({
         accountId: req.accountId,
         folderPath: req.folderPath,
         matchType: req.matchBy,
         matchValue,
+        limit: 6,
       });
 
-      let httpUrl = req.unsubscribeUrl || latest?.unsubscribeUrl || null;
-      let mailtoUrl = req.unsubscribeMailto || latest?.unsubscribeMailto || null;
-      let oneClick = Boolean(req.unsubscribeOneClick || latest?.unsubscribeOneClick);
-      let fromBody = false;
+      interface CandidateSource {
+        uid: number;
+        httpUrl: string | null;
+        mailtoUrl: string | null;
+        oneClick: boolean;
+        fromBody: boolean;
+        dateIso: string;
+      }
+
+      const candidates: CandidateSource[] = [];
+      const seenLinks = new Set<string>();
+      const pushCandidate = (c: CandidateSource) => {
+        const cleanHttp = c.httpUrl ? sanitizeUnsubscribeHttpUrl(c.httpUrl) : null;
+        const cleanMailto = c.mailtoUrl ? sanitizeUnsubscribeMailto(c.mailtoUrl) : null;
+        if (!cleanHttp && !cleanMailto) return;
+        const dedupKey = `${cleanHttp || ""}::${cleanMailto || ""}::${c.oneClick ? 1 : 0}`;
+        if (seenLinks.has(dedupKey)) return;
+        seenLinks.add(dedupKey);
+        candidates.push({
+          ...c,
+          httpUrl: cleanHttp,
+          mailtoUrl: cleanMailto,
+        });
+      };
 
       const account = db.getAccount(req.accountId);
-      if (account && latest && !oneClick) {
-        try {
-          const fresh = await connector.fetchLatestUnsubscribeInfo(
-            account,
-            req.folderPath,
-            latest.uid,
-          );
-          if (fresh.unsubscribeUrl) httpUrl = fresh.unsubscribeUrl;
-          if (fresh.unsubscribeMailto) mailtoUrl = fresh.unsubscribeMailto;
-          oneClick = fresh.unsubscribeOneClick;
-          fromBody = fresh.fromBody;
-          db.updateEmailUnsubscribeInfo({
-            accountId: req.accountId,
-            folderPath: req.folderPath,
-            uid: latest.uid,
-            hasUnsubscribe:
-              fresh.hasUnsubscribe || Boolean(httpUrl || mailtoUrl),
-            unsubscribeUrl: httpUrl,
-            unsubscribeMailto: mailtoUrl,
-            unsubscribeOneClick: oneClick,
-          });
-        } catch {
-          // If IMAP inspection fails while a cached URL exists, continue with cached link
-        }
-      }
+      let newestDateIso = req.latestDateIso || cachedList[0]?.dateIso || "";
 
-      if (oneClick && httpUrl) {
+      if (account) {
         try {
-          const res = await fetch(httpUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/x-www-form-urlencoded",
-            },
-            body: "List-Unsubscribe=One-Click",
-            signal: AbortSignal.timeout(10000),
+          const liveCandidates = await connector.findLatestUnsubscribeCandidates({
+            account,
+            folderPath: req.folderPath,
+            matchValue,
+            cachedUids: cachedList.map((c) => c.uid),
+            limit: 5,
           });
-          if (res.ok) {
-            const unsubscribedAt = db.markSenderUnsubscribed(
-              req.accountId,
-              matchValue,
-              "one_click_post",
-              httpUrl,
-            );
-            return {
-              status: "one_click_sent",
-              method: "one_click_post",
-              url: httpUrl,
-              message: "Désinscription automatique 1-clic confirmée !",
-              unsubscribedAt,
-            };
+          for (const lc of liveCandidates) {
+            if (!newestDateIso && lc.dateIso) newestDateIso = lc.dateIso;
+            if (lc.uid > 0 && cachedList.some((c) => c.uid === lc.uid)) {
+              db.updateEmailUnsubscribeInfo({
+                accountId: req.accountId,
+                folderPath: req.folderPath,
+                uid: lc.uid,
+                hasUnsubscribe: lc.hasUnsubscribe,
+                unsubscribeUrl: lc.unsubscribeUrl,
+                unsubscribeMailto: lc.unsubscribeMailto,
+                unsubscribeOneClick: lc.unsubscribeOneClick,
+              });
+            }
+            pushCandidate({
+              uid: lc.uid,
+              httpUrl: lc.unsubscribeUrl,
+              mailtoUrl: lc.unsubscribeMailto,
+              oneClick: lc.unsubscribeOneClick,
+              fromBody: lc.fromBody,
+              dateIso: lc.dateIso,
+            });
           }
         } catch {
-          // Fall back gracefully to browser/mailto if POST is blocked or fails
+          // Offline or temporary IMAP error: fall back cleanly to cached DB links
         }
       }
 
-      if (httpUrl) {
-        const method = fromBody ? "body_link" : "https";
-        if (openBrowserIfNeeded) {
-          await shell.openExternal(httpUrl);
-          const unsubscribedAt = db.markSenderUnsubscribed(
-            req.accountId,
-            matchValue,
+      for (const c of cachedList) {
+        if (!newestDateIso && c.dateIso) newestDateIso = c.dateIso;
+        pushCandidate({
+          uid: c.uid,
+          httpUrl: c.unsubscribeUrl,
+          mailtoUrl: c.unsubscribeMailto,
+          oneClick: c.unsubscribeOneClick,
+          fromBody: false,
+          dateIso: c.dateIso,
+        });
+      }
+
+      if (req.unsubscribeUrl || req.unsubscribeMailto) {
+        pushCandidate({
+          uid: 0,
+          httpUrl: req.unsubscribeUrl ?? null,
+          mailtoUrl: req.unsubscribeMailto ?? null,
+          oneClick: Boolean(req.unsubscribeOneClick),
+          fromBody: false,
+          dateIso: newestDateIso,
+        });
+      }
+
+      const probeHttp = async (
+        url: string,
+        method: "GET" | "POST",
+      ): Promise<{ ok: true; status: number; body: string; finalUrl: string } | { ok: false; reason: string }> => {
+        try {
+          const headers: Record<string, string> = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) SortBoxEmail/0.2",
+            Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8",
+          };
+          const init: RequestInit = {
             method,
-            httpUrl,
-          );
+            headers,
+            redirect: "follow",
+            signal: AbortSignal.timeout(10000),
+          };
+          if (method === "POST") {
+            headers["Content-Type"] = "application/x-www-form-urlencoded";
+            init.body = "List-Unsubscribe=One-Click";
+          }
+          const resp = await fetch(url, init);
+          const text = (await resp.text().catch(() => "")).slice(0, 128 * 1024);
           return {
-            status: "opened_browser",
-            method,
-            url: httpUrl,
-            message: "Page de désinscription ouverte dans ton navigateur.",
-            unsubscribedAt,
+            ok: true,
+            status: resp.status,
+            body: text,
+            finalUrl: resp.url || url,
+          };
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return {
+            ok: false,
+            reason: /ENOTFOUND|EAI_AGAIN|fetch failed/i.test(msg)
+              ? "Domaine injoignable ou expiré"
+              : msg,
           };
         }
+      };
+
+      let lastFailureReason: string | null = null;
+      let lastFailedUrl: string | null = null;
+      let firstMailtoFallback: string | null = null;
+
+      for (const cand of candidates) {
+        if (!firstMailtoFallback && cand.mailtoUrl) {
+          firstMailtoFallback = cand.mailtoUrl;
+        }
+        if (!cand.httpUrl) continue;
+
+        if (cand.oneClick) {
+          const postRes = await probeHttp(cand.httpUrl, "POST");
+          if (postRes.ok && postRes.status >= 200 && postRes.status < 300) {
+            const report = classifyUnsubscribeHttpResponse(postRes.status, postRes.body);
+            if (report.outcome === "expired") {
+              lastFailureReason = report.reason;
+              lastFailedUrl = cand.httpUrl;
+              continue;
+            }
+            const statusKey =
+              report.outcome === "already_unsubscribed"
+                ? "already_unsubscribed"
+                : "one_click_sent";
+            const msg =
+              statusKey === "already_unsubscribed"
+                ? report.reason
+                : `Désinscription automatique 1-clic vérifiée (HTTP ${postRes.status}).`;
+            const at = db.saveUnsubscribeStatus({
+              accountId: req.accountId,
+              senderKey: matchValue,
+              status: "confirmed",
+              method: "one_click_post",
+              targetUrl: cand.httpUrl,
+              detail: msg,
+            });
+            return {
+              status: statusKey,
+              verified: true,
+              method: "one_click_post",
+              url: postRes.finalUrl || cand.httpUrl,
+              message: msg,
+              unsubscribedAt: at,
+            };
+          }
+        }
+
+        const getRes = await probeHttp(cand.httpUrl, "GET");
+        if (!getRes.ok) {
+          lastFailureReason = getRes.reason;
+          lastFailedUrl = cand.httpUrl;
+          continue;
+        }
+
+        const report = classifyUnsubscribeHttpResponse(getRes.status, getRes.body);
+        const linkMethod = cand.fromBody ? "body_link" : "https";
+
+        if (report.outcome === "already_unsubscribed") {
+          const at = db.saveUnsubscribeStatus({
+            accountId: req.accountId,
+            senderKey: matchValue,
+            status: "confirmed",
+            method: linkMethod,
+            targetUrl: getRes.finalUrl,
+            detail: report.reason,
+          });
+          return {
+            status: "already_unsubscribed",
+            verified: true,
+            method: linkMethod,
+            url: getRes.finalUrl,
+            message: report.reason,
+            unsubscribedAt: at,
+          };
+        }
+
+        if (report.outcome === "confirmed") {
+          const at = db.saveUnsubscribeStatus({
+            accountId: req.accountId,
+            senderKey: matchValue,
+            status: "confirmed",
+            method: linkMethod,
+            targetUrl: getRes.finalUrl,
+            detail: report.reason,
+          });
+          return {
+            status: "confirmed_get",
+            verified: true,
+            method: linkMethod,
+            url: getRes.finalUrl,
+            message: report.reason,
+            unsubscribedAt: at,
+          };
+        }
+
+        if (report.outcome === "needs_manual") {
+          db.saveUnsubscribeStatus({
+            accountId: req.accountId,
+            senderKey: matchValue,
+            status: "pending",
+            method: linkMethod,
+            targetUrl: getRes.finalUrl,
+            detail: report.reason,
+          });
+          if (openBrowserIfNeeded) {
+            await shell.openExternal(getRes.finalUrl);
+          }
+          return {
+            status: "opened_browser",
+            verified: false,
+            method: linkMethod,
+            url: getRes.finalUrl,
+            message: openBrowserIfNeeded
+              ? "Page active vérifiée et ouverte : valide sur le site puis clique « C'est fait »."
+              : "Page active vérifiée — ouvre le lien pour confirmer.",
+            unsubscribedAt: null,
+          };
+        }
+
+        lastFailureReason = report.reason;
+        lastFailedUrl = cand.httpUrl;
+      }
+
+      if (firstMailtoFallback) {
+        db.saveUnsubscribeStatus({
+          accountId: req.accountId,
+          senderKey: matchValue,
+          status: "pending",
+          method: "mailto",
+          targetUrl: firstMailtoFallback,
+          detail: "E-mail préparé — confirmation après envoi.",
+        });
+        if (openBrowserIfNeeded) {
+          await shell.openExternal(firstMailtoFallback);
+        }
         return {
-          status: "opened_browser",
-          method,
-          url: httpUrl,
-          message: "Confirmation web requise — clique sur le lien ci-dessous.",
+          status: "opened_mailto",
+          verified: false,
+          method: "mailto",
+          url: firstMailtoFallback,
+          message: openBrowserIfNeeded
+            ? "E-mail préparé : envoie-le puis clique sur « C'est fait »."
+            : "Envoi d'e-mail de désinscription requis.",
           unsubscribedAt: null,
         };
       }
 
-      if (mailtoUrl) {
-        if (openBrowserIfNeeded) {
-          await shell.openExternal(mailtoUrl);
-          const unsubscribedAt = db.markSenderUnsubscribed(
-            req.accountId,
-            matchValue,
-            "mailto",
-            mailtoUrl,
-          );
-          return {
-            status: "opened_mailto",
-            method: "mailto",
-            url: mailtoUrl,
-            message: "E-mail de désinscription préparé dans ton logiciel mail.",
-            unsubscribedAt,
-          };
-        }
+      if (lastFailureReason) {
+        const ageDays =
+          newestDateIso && !Number.isNaN(new Date(newestDateIso).getTime())
+            ? Math.max(0, Math.round((Date.now() - new Date(newestDateIso).getTime()) / 86_400_000))
+            : null;
+        const ageHint =
+          ageDays !== null && ageDays >= 60
+            ? ` (dernier mail reçu il y a ${ageDays} jours : tu es probablement déjà désinscrit ou la campagne est terminée)`
+            : "";
+        const fullMsg = `Aucun lien valide trouvé : ${lastFailureReason}${ageHint}.`;
+        db.saveUnsubscribeStatus({
+          accountId: req.accountId,
+          senderKey: matchValue,
+          status: "failed",
+          method: "https",
+          targetUrl: lastFailedUrl,
+          detail: fullMsg,
+        });
         return {
-          status: "opened_mailto",
-          method: "mailto",
-          url: mailtoUrl,
-          message: "Envoi d'e-mail de désinscription requis.",
+          status: "expired",
+          verified: false,
+          method: "https",
+          url: lastFailedUrl,
+          message: fullMsg,
           unsubscribedAt: null,
         };
       }
 
       return {
         status: "not_found",
+        verified: false,
         method: "none",
         url: null,
-        message: "Aucun lien de désinscription détecté sur cet expéditeur.",
+        message: "Aucun lien de désinscription détecté sur les derniers messages.",
         unsubscribedAt: null,
       };
     },

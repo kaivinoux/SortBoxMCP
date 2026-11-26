@@ -44,8 +44,10 @@ const api = {
     markUnsubscribed: (params: {
       accountId: string;
       senderKey: string;
+      status?: "confirmed" | "pending" | "failed";
       method?: string;
       targetUrl?: string | null;
+      detail?: string | null;
     }): Promise<string> =>
       ipcRenderer.invoke("emails:markUnsubscribed", params),
   },

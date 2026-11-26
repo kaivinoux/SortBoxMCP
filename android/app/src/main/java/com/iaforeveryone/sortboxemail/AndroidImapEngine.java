@@ -5,6 +5,8 @@ import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.sun.mail.imap.IMAPFolder;
 import com.sun.mail.imap.IMAPStore;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -15,6 +17,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Properties;
@@ -34,6 +37,7 @@ import javax.mail.Session;
 import javax.mail.Store;
 import javax.mail.UIDFolder;
 import javax.mail.internet.InternetAddress;
+import javax.mail.search.FromStringTerm;
 import javax.mail.search.HeaderTerm;
 
 public class AndroidImapEngine {
@@ -145,30 +149,165 @@ public class AndroidImapEngine {
         return info;
     }
 
-    public static boolean sendOneClickPost(String httpsUrl) {
-        if (httpsUrl == null || !httpsUrl.startsWith("https://")) return false;
-        HttpURLConnection conn = null;
-        try {
-            URL url = new URL(httpsUrl);
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("POST");
-            conn.setConnectTimeout(10_000);
-            conn.setReadTimeout(10_000);
-            conn.setInstanceFollowRedirects(true);
-            conn.setDoOutput(true);
-            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-            byte[] payload = "List-Unsubscribe=One-Click".getBytes(StandardCharsets.UTF_8);
-            conn.setRequestProperty("Content-Length", String.valueOf(payload.length));
-            try (OutputStream os = conn.getOutputStream()) {
-                os.write(payload);
-            }
-            int code = conn.getResponseCode();
-            return code >= 200 && code < 300;
-        } catch (Exception e) {
-            return false;
-        } finally {
-            if (conn != null) conn.disconnect();
+    public static class UnsubscribeCandidate {
+        public long uid;
+        public UnsubscribeInfo info;
+        public String dateIso;
+    }
+
+    public static class HttpProbeResult {
+        public boolean reachable;
+        public int statusCode;
+        public String finalUrl;
+        public String outcome;
+        public String reason;
+    }
+
+    private static final Pattern ALREADY_UNSUB_RE = Pattern.compile(
+        "d[eé]j[aà]\\s+(?:d[eé]sinscri|d[eé]sabonn|retir[eé])|vous\\s+n['’][eê]tes\\s+(?:plus|pas)\\s+abonn[eé]|already\\s+(?:unsubscribed|opted\\s*out|removed)|you\\s+are\\s+no\\s+longer\\s+subscribed|ne\\s+recevez\\s+d[eé]j[aà]\\s+plus",
+        Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern EXPIRED_PAGE_RE = Pattern.compile(
+        "lien\\s+(?:a\\s+|est\\s+)?expir[eé]|link\\s+(?:has\\s+|is\\s+)?expired|token\\s+(?:invalide|expir[eé]|introuvable|not\\s+found)|invalid\\s+(?:or\\s+expired\\s+)?(?:link|token)|page\\s+(?:introuvable|n['’]existe\\s+plus|n['’]existe\\s+pas|not\\s+found)|error\\s*404|\\b404\\s+not\\s+found\\b",
+        Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern HAS_FORM_PROMPT_RE = Pattern.compile(
+        "<form\\b|<input[^>]+type\\s*=\\s*[\"']?(?:submit|checkbox|radio|email)|confirmer\\s+(?:votre|la)\\s+d[eé]s|veuillez\\s+confirmer|cliquez\\s+(?:ici\\s+)?pour\\s+(?:vous\\s+d[eé]s|confirmer)|confirm\\s+(?:your\\s+)?unsub|click\\s+(?:below\\s+)?to\\s+(?:confirm|unsubscribe)|g[eé]rer\\s+(?:vos|mes)\\s+pr[eé]f[eé]rences|update\\s+(?:your\\s+)?preferences",
+        Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern CONFIRMED_UNSUB_RE = Pattern.compile(
+        "vous\\s+[eê]tes\\s+(?:maintenant\\s+|bien\\s+|officiellement\\s+)?d[eé]s(?:inscri|abonn)|votre\\s+d[eé]s(?:inscription|abonnement)\\s+(?:a\\s+[eé]t[eé]\\s+|est\\s+)?(?:confirm[eé]|enregistr[eé]|prise?\\s+en\\s+compte|effectu[eé]|valid[eé])|vous\\s+ne\\s+recevrez\\s+plus|successfully\\s+unsubscribed|you\\s+have\\s+been\\s+unsubscribed|unsubscribed\\s+successfully|opt[- ]?out\\s+(?:confirmed|complete|successful)",
+        Pattern.CASE_INSENSITIVE
+    );
+
+    public static HttpProbeResult probeHttp(String urlStr, String method) {
+        HttpProbeResult res = new HttpProbeResult();
+        res.finalUrl = urlStr;
+        if (urlStr == null || (!urlStr.startsWith("https://") && !urlStr.startsWith("http://"))) {
+            res.outcome = "error";
+            res.reason = "URL invalide";
+            return res;
         }
+        String currentUrl = urlStr;
+        String activeMethod = "POST".equals(method) ? "POST" : "GET";
+        for (int hop = 0; hop < 6; hop++) {
+            HttpURLConnection conn = null;
+            try {
+                URL url = new URL(currentUrl);
+                conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod(activeMethod);
+                conn.setConnectTimeout(10_000);
+                conn.setReadTimeout(10_000);
+                conn.setInstanceFollowRedirects(false);
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) SortBoxEmail/0.2");
+                conn.setRequestProperty("Accept", "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8");
+                if ("POST".equals(activeMethod)) {
+                    conn.setDoOutput(true);
+                    conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+                    byte[] payload = "List-Unsubscribe=One-Click".getBytes(StandardCharsets.UTF_8);
+                    conn.setRequestProperty("Content-Length", String.valueOf(payload.length));
+                    try (OutputStream os = conn.getOutputStream()) {
+                        os.write(payload);
+                    }
+                }
+                int code = conn.getResponseCode();
+                if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+                    String loc = conn.getHeaderField("Location");
+                    if (loc != null && !loc.trim().isEmpty()) {
+                        URL next = new URL(url, loc.trim());
+                        String nextProto = next.getProtocol().toLowerCase(Locale.US);
+                        if ("https".equals(nextProto) || "http".equals(nextProto)) {
+                            currentUrl = next.toString();
+                            if (code == 301 || code == 302 || code == 303) {
+                                activeMethod = "GET";
+                            }
+                            continue;
+                        }
+                    }
+                }
+
+                res.reachable = true;
+                res.statusCode = code;
+                res.finalUrl = currentUrl;
+                String body = readLimitedBody(code >= 400 ? conn.getErrorStream() : conn.getInputStream(), 128 * 1024);
+                classifyHttpResponse(res, code, body);
+                return res;
+            } catch (Exception e) {
+                res.reachable = false;
+                res.outcome = "expired";
+                res.reason = e.getMessage() != null && e.getMessage().toLowerCase(Locale.US).contains("unable to resolve host")
+                    ? "Domaine injoignable ou expiré"
+                    : (e.getMessage() != null ? e.getMessage() : "Connexion impossible");
+                return res;
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+        }
+        res.outcome = "error";
+        res.reason = "Trop de redirections HTTP.";
+        return res;
+    }
+
+    private static String readLimitedBody(InputStream is, int maxBytes) {
+        if (is == null) return "";
+        try (InputStream in = is; ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            byte[] buf = new byte[4096];
+            int total = 0;
+            int n;
+            while (total < maxBytes && (n = in.read(buf, 0, Math.min(buf.length, maxBytes - total))) != -1) {
+                baos.write(buf, 0, n);
+                total += n;
+            }
+            return baos.toString(StandardCharsets.UTF_8.name());
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private static void classifyHttpResponse(HttpProbeResult res, int statusCode, String rawBody) {
+        if (statusCode == 404 || statusCode == 410) {
+            res.outcome = "expired";
+            res.reason = "Lien expiré ou introuvable (HTTP " + statusCode + ").";
+            return;
+        }
+        if (statusCode >= 500) {
+            res.outcome = "error";
+            res.reason = "Erreur temporaire du serveur expéditeur (HTTP " + statusCode + ").";
+            return;
+        }
+        String cleaned = rawBody
+            .replaceAll("(?is)<script[^>]*>[\\s\\S]*?</script>", " ")
+            .replaceAll("(?is)<style[^>]*>[\\s\\S]*?</style>", " ");
+        String visible = cleaned.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
+
+        if (statusCode == 401 || statusCode == 403 || statusCode == 405 || statusCode == 429) {
+            if (EXPIRED_PAGE_RE.matcher(visible).find()) {
+                res.outcome = "expired";
+                res.reason = "Ce lien semble expiré (HTTP " + statusCode + ").";
+            } else {
+                res.outcome = "needs_manual";
+                res.reason = "Accès protégé (HTTP " + statusCode + ") — ouvre la page dans le navigateur.";
+            }
+            return;
+        }
+
+        if (ALREADY_UNSUB_RE.matcher(visible).find()) {
+            res.outcome = "already_unsubscribed";
+            res.reason = "Vérifié : le site indique que tu es déjà désinscrit.";
+            return;
+        }
+        if (EXPIRED_PAGE_RE.matcher(visible).find()) {
+            res.outcome = "expired";
+            res.reason = "La page retournée indique que le lien est expiré ou introuvable.";
+            return;
+        }
+        if (CONFIRMED_UNSUB_RE.matcher(visible).find() && !HAS_FORM_PROMPT_RE.matcher(cleaned).find()) {
+            res.outcome = "confirmed";
+            res.reason = "Désinscription vérifiée et confirmée par la réponse du site.";
+            return;
+        }
+        res.outcome = "needs_manual";
+        res.reason = "Page active vérifiée — confirmation requise dans le navigateur.";
     }
 
     private static void extractBodyText(Part part, StringBuilder out, int maxChars) {
@@ -776,40 +915,86 @@ public class AndroidImapEngine {
         }
     }
 
-    public UnsubscribeInfo fetchLatestUnsubscribeInfo(
+    public List<UnsubscribeCandidate> findLatestUnsubscribeCandidates(
         JSObject account,
         String secret,
         String folderPath,
-        long uid
+        String matchValue,
+        List<Long> cachedUids,
+        int limit
     ) throws Exception {
         String email = account.getString("email");
         String host = account.getString("imapHost");
         int port = account.getInt("imapPort");
         boolean secure = account.getBoolean("imapSecure");
         boolean isOAuth = !"imap_password".equals(account.getString("authMode"));
+        int maxCandidates = Math.min(Math.max(limit > 0 ? limit : 5, 1), 8);
 
         IMAPStore store = openStore(host, port, secure, email, secret, isOAuth);
         try {
             IMAPFolder folder = (IMAPFolder) store.getFolder(folderPath);
             folder.open(Folder.READ_ONLY);
             try {
-                Message msg = folder.getMessageByUID(uid);
-                if (msg == null) return new UnsubscribeInfo();
-
-                String[] unsubs = msg.getHeader("List-Unsubscribe");
-                String[] unsubPosts = msg.getHeader("List-Unsubscribe-Post");
-                String unsubVal = (unsubs != null && unsubs.length > 0) ? unsubs[0] : null;
-                String postVal = (unsubPosts != null && unsubPosts.length > 0) ? unsubPosts[0] : null;
-                UnsubscribeInfo headerInfo = parseListUnsubscribeHeaders(unsubVal, postVal);
-                if (headerInfo.unsubscribeUrl != null || headerInfo.unsubscribeMailto != null) {
-                    return headerInfo;
+                Set<Long> mergedSet = new LinkedHashSet<>();
+                if (matchValue != null && !matchValue.trim().isEmpty()) {
+                    try {
+                        Message[] matched = folder.search(new FromStringTerm(matchValue.trim()));
+                        if (matched != null) {
+                            for (Message m : matched) {
+                                long uid = folder.getUID(m);
+                                if (uid > 0) mergedSet.add(uid);
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                }
+                if (cachedUids != null) {
+                    for (Long u : cachedUids) {
+                        if (u != null && u > 0) mergedSet.add(u);
+                    }
+                }
+                List<Long> sorted = new ArrayList<>(mergedSet);
+                Collections.sort(sorted, Collections.reverseOrder());
+                if (sorted.size() > maxCandidates) {
+                    sorted = sorted.subList(0, maxCandidates);
                 }
 
-                StringBuilder bodyBuf = new StringBuilder();
-                extractBodyText(msg, bodyBuf, 256 * 1024);
-                UnsubscribeInfo bodyInfo = extractFromBody(bodyBuf.toString());
-                bodyInfo.hasUnsubscribe = bodyInfo.hasUnsubscribe || headerInfo.hasUnsubscribe;
-                return bodyInfo;
+                SimpleDateFormat isoFmt = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
+                isoFmt.setTimeZone(TimeZone.getTimeZone("UTC"));
+
+                List<UnsubscribeCandidate> out = new ArrayList<>();
+                for (Long uid : sorted) {
+                    Message msg = folder.getMessageByUID(uid);
+                    if (msg == null) continue;
+
+                    Date dt = null;
+                    try {
+                        dt = msg.getSentDate() != null ? msg.getSentDate() : msg.getReceivedDate();
+                    } catch (Exception ignored) {}
+                    String dateIso = dt != null ? isoFmt.format(dt) : "";
+
+                    String[] unsubs = msg.getHeader("List-Unsubscribe");
+                    String[] unsubPosts = msg.getHeader("List-Unsubscribe-Post");
+                    String unsubVal = (unsubs != null && unsubs.length > 0) ? unsubs[0] : null;
+                    String postVal = (unsubPosts != null && unsubPosts.length > 0) ? unsubPosts[0] : null;
+                    UnsubscribeInfo info = parseListUnsubscribeHeaders(unsubVal, postVal);
+
+                    if (info.unsubscribeUrl == null && info.unsubscribeMailto == null && out.size() < 3) {
+                        StringBuilder bodyBuf = new StringBuilder();
+                        extractBodyText(msg, bodyBuf, 256 * 1024);
+                        UnsubscribeInfo bodyInfo = extractFromBody(bodyBuf.toString());
+                        bodyInfo.hasUnsubscribe = bodyInfo.hasUnsubscribe || info.hasUnsubscribe;
+                        info = bodyInfo;
+                    }
+
+                    if (info.unsubscribeUrl != null || info.unsubscribeMailto != null) {
+                        UnsubscribeCandidate cand = new UnsubscribeCandidate();
+                        cand.uid = uid;
+                        cand.info = info;
+                        cand.dateIso = dateIso;
+                        out.add(cand);
+                    }
+                }
+                return out;
             } finally {
                 try { folder.close(false); } catch (Exception ignored) {}
             }

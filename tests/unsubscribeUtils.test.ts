@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyUnsubscribeHttpResponse,
   extractUnsubscribeFromRawMessage,
   parseListUnsubscribeFromHeaderBlock,
   parseListUnsubscribeHeaderValues,
@@ -77,5 +78,33 @@ describe("unsubscribeUtils", () => {
     const parsed = extractUnsubscribeFromRawMessage(rawMsg);
     expect(parsed.hasUnsubscribe).toBe(true);
     expect(parsed.unsubscribeUrl).toBe("https://mag.fr/unsub?u=42&ok=1");
+  });
+
+  it("classifies 404, already-unsubscribed, confirmed, and interactive form pages", () => {
+    expect(classifyUnsubscribeHttpResponse(404, "Not Found").outcome).toBe("expired");
+    expect(
+      classifyUnsubscribeHttpResponse(
+        200,
+        "<html><body><p>Vous êtes déjà désinscrit de cette liste.</p></body></html>",
+      ).outcome,
+    ).toBe("already_unsubscribed");
+    expect(
+      classifyUnsubscribeHttpResponse(
+        200,
+        "<html><body><h1>Désinscription confirmée</h1><p>Vous ne recevrez plus nos offres.</p></body></html>",
+      ).outcome,
+    ).toBe("confirmed");
+    expect(
+      classifyUnsubscribeHttpResponse(
+        200,
+        '<html><body><form method="post"><button type="submit">Confirmer votre désinscription</button></form></body></html>',
+      ).outcome,
+    ).toBe("needs_manual");
+    expect(
+      classifyUnsubscribeHttpResponse(
+        200,
+        "<html><body><p>Oops, ce lien a expiré (Error 404).</p></body></html>",
+      ).outcome,
+    ).toBe("expired");
   });
 });

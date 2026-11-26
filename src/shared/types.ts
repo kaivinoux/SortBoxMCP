@@ -86,6 +86,8 @@ export interface SenderGroup {
   unsubscribeUrl: string | null;
   unsubscribeMailto?: string | null;
   unsubscribeOneClick?: boolean;
+  unsubscribeStatus?: "confirmed" | "pending" | "failed" | null;
+  unsubscribeStatusDetail?: string | null;
   unsubscribedAt?: string | null;
   latestDateIso: string;
   sampleSubjects: string[];
@@ -103,15 +105,20 @@ export interface UnsubscribeRequest {
   unsubscribeUrl?: string | null;
   unsubscribeMailto?: string | null;
   unsubscribeOneClick?: boolean;
+  latestDateIso?: string;
 }
 
 export interface UnsubscribeResult {
   status:
     | "one_click_sent"
+    | "already_unsubscribed"
+    | "confirmed_get"
     | "opened_browser"
     | "opened_mailto"
+    | "expired"
     | "not_found"
     | "error";
+  verified: boolean;
   method: "one_click_post" | "https" | "mailto" | "body_link" | "none";
   url: string | null;
   message: string;

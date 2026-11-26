@@ -64,8 +64,10 @@ interface SortBoxNativePlugin {
   emailsMarkUnsubscribed(opts: {
     accountId: string;
     senderKey: string;
+    status?: "confirmed" | "pending" | "failed";
     method?: string;
     targetUrl?: string | null;
+    detail?: string | null;
   }): Promise<{ unsubscribedAt: string }>;
   plansList(): Promise<{ items: SortPlan[] }>;
   plansCreateFromSenders(params: {

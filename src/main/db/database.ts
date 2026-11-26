@@ -175,8 +175,10 @@ export class AppDatabase {
       CREATE TABLE IF NOT EXISTS unsubscribed_senders (
         account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
         sender_key TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'confirmed',
         method TEXT NOT NULL,
         target_url TEXT,
+        detail TEXT,
         unsubscribed_at TEXT NOT NULL,
         PRIMARY KEY (account_id, sender_key)
       );
@@ -189,6 +191,17 @@ export class AppDatabase {
     }
     if (!colNames.has("unsubscribe_one_click")) {
       this.db.exec("ALTER TABLE emails ADD COLUMN unsubscribe_one_click INTEGER NOT NULL DEFAULT 0;");
+    }
+
+    const unsubCols = this.db
+      .prepare("PRAGMA table_info(unsubscribed_senders)")
+      .all() as Array<{ name: string }>;
+    const unsubColNames = new Set(unsubCols.map((c) => c.name));
+    if (!unsubColNames.has("status")) {
+      this.db.exec("ALTER TABLE unsubscribed_senders ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed';");
+    }
+    if (!unsubColNames.has("detail")) {
+      this.db.exec("ALTER TABLE unsubscribed_senders ADD COLUMN detail TEXT;");
     }
   }
 
@@ -475,17 +488,38 @@ export class AppDatabase {
           SUM(CASE WHEN e.seen = 0 THEN 1 ELSE 0 END) AS unread_count,
           SUM(e.size_bytes) AS total_size_bytes,
           MAX(e.has_unsubscribe) AS has_unsubscribe,
-          MAX(e.unsubscribe_url) AS unsubscribe_url,
-          MAX(e.unsubscribe_mailto) AS unsubscribe_mailto,
-          MAX(e.unsubscribe_one_click) AS unsubscribe_one_click,
-          MAX(u.unsubscribed_at) AS unsubscribed_at,
+          SUBSTR(
+            MAX(
+              CASE
+                WHEN e.unsubscribe_url IS NOT NULL AND e.unsubscribe_url <> '' THEN
+                  printf('%016d|%010d|%s', CASE WHEN e.date_ts > 0 THEN e.date_ts ELSE 0 END, e.uid, e.unsubscribe_url)
+              END
+            ),
+            29
+          ) AS unsubscribe_url,
+          SUBSTR(
+            MAX(
+              CASE
+                WHEN e.unsubscribe_mailto IS NOT NULL AND e.unsubscribe_mailto <> '' THEN
+                  printf('%016d|%010d|%s', CASE WHEN e.date_ts > 0 THEN e.date_ts ELSE 0 END, e.uid, e.unsubscribe_mailto)
+              END
+            ),
+            29
+          ) AS unsubscribe_mailto,
+          SUBSTR(
+            MAX(
+              CASE
+                WHEN e.unsubscribe_url IS NOT NULL AND e.unsubscribe_url <> '' THEN
+                  printf('%016d|%010d|%d', CASE WHEN e.date_ts > 0 THEN e.date_ts ELSE 0 END, e.uid, e.unsubscribe_one_click)
+              END
+            ),
+            29,
+            1
+          ) AS unsubscribe_one_click,
           MAX(e.date_iso) AS latest_date_iso,
           GROUP_CONCAT(DISTINCT e.subject) AS joined_subjects
         FROM emails e
         JOIN accounts a ON a.id = e.account_id
-        LEFT JOIN unsubscribed_senders u
-          ON u.account_id = e.account_id
-          AND (u.sender_key = LOWER(e.from_addr) OR (e.domain <> '' AND u.sender_key = LOWER(e.domain)))
         ${where}
         GROUP BY e.account_id, e.folder_path, ${keyExpr}
         ORDER BY total_count DESC
@@ -493,8 +527,30 @@ export class AppDatabase {
       )
       .all(...params, limit) as Array<Record<string, unknown>>;
 
+    const unsubRows = this.db
+      .prepare("SELECT account_id, sender_key, status, detail, unsubscribed_at FROM unsubscribed_senders")
+      .all() as Array<Record<string, unknown>>;
+    const unsubMap = new Map<
+      string,
+      { status: "confirmed" | "pending" | "failed"; detail: string | null; unsubscribedAt: string }
+    >();
+    const rankStatus = (s: string) => (s === "confirmed" ? 3 : s === "pending" ? 2 : 1);
+    for (const u of unsubRows) {
+      const k = `${String(u.account_id)}::${String(u.sender_key).toLowerCase()}`;
+      const stRaw = String(u.status || "confirmed");
+      const st: "confirmed" | "pending" | "failed" =
+        stRaw === "pending" ? "pending" : stRaw === "failed" ? "failed" : "confirmed";
+      unsubMap.set(k, {
+        status: st,
+        detail: u.detail ? String(u.detail) : null,
+        unsubscribedAt: String(u.unsubscribed_at),
+      });
+    }
+
     const groups: SenderGroup[] = [];
     for (const r of rows) {
+      const accountId = String(r.account_id);
+      const fromAddr = String(r.from_addr || "");
       const domain = String(r.domain || "");
       const hasUnsub = Boolean(r.has_unsubscribe);
       const rawJoined = String(r.joined_subjects || "");
@@ -517,12 +573,21 @@ export class AppDatabase {
         continue;
       }
 
+      const byAddr = fromAddr ? unsubMap.get(`${accountId}::${fromAddr.toLowerCase()}`) : undefined;
+      const byDomain = domain ? unsubMap.get(`${accountId}::${domain.toLowerCase()}`) : undefined;
+      const unsubEntry =
+        byAddr && byDomain
+          ? rankStatus(byAddr.status) >= rankStatus(byDomain.status)
+            ? byAddr
+            : byDomain
+          : byAddr || byDomain || null;
+
       groups.push({
-        groupKey: String(r.group_key || r.from_addr || ""),
-        accountId: String(r.account_id),
+        groupKey: String(r.group_key || fromAddr || ""),
+        accountId,
         accountEmail: String(r.account_email),
         folderPath: String(r.folder_path),
-        fromAddr: String(r.from_addr || ""),
+        fromAddr,
         fromName: String(r.from_name || ""),
         domain,
         totalCount: Number(r.total_count),
@@ -531,8 +596,11 @@ export class AppDatabase {
         hasUnsubscribe: hasUnsub,
         unsubscribeUrl: r.unsubscribe_url ? String(r.unsubscribe_url) : null,
         unsubscribeMailto: r.unsubscribe_mailto ? String(r.unsubscribe_mailto) : null,
-        unsubscribeOneClick: Boolean(r.unsubscribe_one_click),
-        unsubscribedAt: r.unsubscribed_at ? String(r.unsubscribed_at) : null,
+        unsubscribeOneClick: String(r.unsubscribe_one_click || "") === "1",
+        unsubscribeStatus: unsubEntry?.status ?? null,
+        unsubscribeStatusDetail: unsubEntry?.detail ?? null,
+        unsubscribedAt:
+          unsubEntry?.status === "confirmed" ? unsubEntry.unsubscribedAt : null,
         latestDateIso: String(r.latest_date_iso || ""),
         sampleSubjects,
         suggestedCategory: category,
@@ -640,37 +708,40 @@ export class AppDatabase {
     }));
   }
 
-  getLatestEmailForGroup(params: {
+  getCandidateEmailsForGroup(params: {
     accountId: string;
     folderPath: string;
     matchType: "sender" | "domain";
     matchValue: string;
-  }): {
+    limit?: number;
+  }): Array<{
     uid: number;
     hasUnsubscribe: boolean;
     unsubscribeUrl: string | null;
     unsubscribeMailto: string | null;
     unsubscribeOneClick: boolean;
-  } | null {
+    dateIso: string;
+  }> {
     const arg = params.matchValue.trim().toLowerCase();
     const col = params.matchType === "domain" ? "LOWER(domain)" : "LOWER(from_addr)";
-    const row = this.db
+    const limit = Math.min(Math.max(params.limit ?? 6, 1), 15);
+    const rows = this.db
       .prepare(
-        `SELECT uid, has_unsubscribe, unsubscribe_url, unsubscribe_mailto, unsubscribe_one_click
+        `SELECT uid, has_unsubscribe, unsubscribe_url, unsubscribe_mailto, unsubscribe_one_click, date_iso
          FROM emails
          WHERE account_id = ? AND folder_path = ? AND ${col} = ?
          ORDER BY date_ts DESC, uid DESC
-         LIMIT 1`,
+         LIMIT ?`,
       )
-      .get(params.accountId, params.folderPath, arg) as Record<string, unknown> | undefined;
-    if (!row) return null;
-    return {
+      .all(params.accountId, params.folderPath, arg, limit) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
       uid: Number(row.uid),
       hasUnsubscribe: Boolean(row.has_unsubscribe),
       unsubscribeUrl: row.unsubscribe_url ? String(row.unsubscribe_url) : null,
       unsubscribeMailto: row.unsubscribe_mailto ? String(row.unsubscribe_mailto) : null,
       unsubscribeOneClick: Boolean(row.unsubscribe_one_click),
-    };
+      dateIso: String(row.date_iso || ""),
+    }));
   }
 
   updateEmailUnsubscribeInfo(params: {
@@ -702,25 +773,54 @@ export class AppDatabase {
       );
   }
 
+  saveUnsubscribeStatus(params: {
+    accountId: string;
+    senderKey: string;
+    status: "confirmed" | "pending" | "failed";
+    method: string;
+    targetUrl: string | null;
+    detail?: string | null;
+  }): string {
+    const now = new Date().toISOString();
+    const normKey = params.senderKey.trim().toLowerCase();
+    this.db
+      .prepare(
+        `INSERT INTO unsubscribed_senders (account_id, sender_key, status, method, target_url, detail, unsubscribed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(account_id, sender_key) DO UPDATE SET
+           status = excluded.status,
+           method = excluded.method,
+           target_url = excluded.target_url,
+           detail = excluded.detail,
+           unsubscribed_at = excluded.unsubscribed_at`,
+      )
+      .run(
+        params.accountId,
+        normKey,
+        params.status,
+        params.method,
+        params.targetUrl,
+        params.detail ?? null,
+        now,
+      );
+    return now;
+  }
+
   markSenderUnsubscribed(
     accountId: string,
     senderKey: string,
     method: string,
     targetUrl: string | null,
+    detail?: string | null,
   ): string {
-    const now = new Date().toISOString();
-    const normKey = senderKey.trim().toLowerCase();
-    this.db
-      .prepare(
-        `INSERT INTO unsubscribed_senders (account_id, sender_key, method, target_url, unsubscribed_at)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(account_id, sender_key) DO UPDATE SET
-           method = excluded.method,
-           target_url = excluded.target_url,
-           unsubscribed_at = excluded.unsubscribed_at`,
-      )
-      .run(accountId, normKey, method, targetUrl, now);
-    return now;
+    return this.saveUnsubscribeStatus({
+      accountId,
+      senderKey,
+      status: "confirmed",
+      method,
+      targetUrl,
+      detail,
+    });
   }
 
   // --- Sort Plans ---
