@@ -218,8 +218,11 @@ public class SortBoxPlugin extends Plugin {
         if ("microsoft_oauth".equals(authMode)) {
             long expiresAt = sec.optLong("expiresAt", 0L);
             String refreshToken = sec.optString("refreshToken", "");
-            String clientId = db.getSettings().optString("microsoftClientId", "");
-            if (expiresAt > 0 && System.currentTimeMillis() > expiresAt - 120_000L && !refreshToken.isEmpty() && !clientId.isEmpty()) {
+            String clientId = AndroidMicrosoftOAuth.resolveClientId(
+                null,
+                db.getSettings().optString("microsoftClientId", "")
+            );
+            if (expiresAt > 0 && System.currentTimeMillis() > expiresAt - 120_000L && !refreshToken.isEmpty()) {
                 AndroidMicrosoftOAuth.TokenResult refreshed = AndroidMicrosoftOAuth.refreshToken(clientId, refreshToken);
                 sec.put("accessToken", refreshed.accessToken);
                 if (refreshed.refreshToken != null && !refreshed.refreshToken.isEmpty()) {
@@ -237,12 +240,14 @@ public class SortBoxPlugin extends Plugin {
     public void accountsMicrosoftLogin(PluginCall call) {
         executor.execute(() -> {
             try {
-                String clientId = call.getString("clientId", "");
+                String rawOverride = call.getString("clientId", "");
+                String rawSaved = db.getSettings().optString("microsoftClientId", "");
+                String clientId = AndroidMicrosoftOAuth.resolveClientId(
+                    rawOverride,
+                    AndroidMicrosoftOAuth.extractCustomClientId(rawSaved)
+                );
                 String loginHint = call.getString("loginHint", "");
                 String targetAccountId = call.getString("targetAccountId", "");
-                if (clientId == null || clientId.trim().isEmpty()) {
-                    clientId = db.getSettings().optString("microsoftClientId", "");
-                }
                 JSObject targetAcc = (targetAccountId != null && !targetAccountId.isEmpty())
                     ? db.getAccount(targetAccountId) : null;
                 if ((loginHint == null || loginHint.trim().isEmpty()) && targetAcc != null) {
@@ -254,9 +259,12 @@ public class SortBoxPlugin extends Plugin {
                     call.reject("Impossible de déterminer l'adresse email Microsoft.");
                     return;
                 }
-                if (!clientId.trim().isEmpty()) {
+                String persistedCustom = AndroidMicrosoftOAuth.DEFAULT_MICROSOFT_CLIENT_ID.equals(clientId)
+                    ? ""
+                    : clientId;
+                if (!persistedCustom.equals(rawSaved)) {
                     JSObject s = new JSObject();
-                    s.put("microsoftClientId", clientId.trim());
+                    s.put("microsoftClientId", persistedCustom);
                     db.saveSettings(s);
                 }
 

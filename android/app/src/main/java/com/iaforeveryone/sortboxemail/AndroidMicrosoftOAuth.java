@@ -22,8 +22,26 @@ import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONObject;
 
 public class AndroidMicrosoftOAuth {
+    public static final String DEFAULT_MICROSOFT_CLIENT_ID =
+        "b038a8f9-be23-4b78-9221-3d60bdf79004";
     private static final String SCOPES =
         "https://outlook.office.com/IMAP.AccessAsUser.All offline_access openid email profile";
+
+    public static String resolveClientId(String overrideClientId, String savedClientId) {
+        if (overrideClientId != null && !overrideClientId.trim().isEmpty()) {
+            return overrideClientId.trim();
+        }
+        if (savedClientId != null && !savedClientId.trim().isEmpty()) {
+            return savedClientId.trim();
+        }
+        return DEFAULT_MICROSOFT_CLIENT_ID;
+    }
+
+    public static String extractCustomClientId(String savedClientId) {
+        if (savedClientId == null) return "";
+        String trimmed = savedClientId.trim();
+        return (!trimmed.isEmpty() && !DEFAULT_MICROSOFT_CLIENT_ID.equals(trimmed)) ? trimmed : "";
+    }
 
     public static class TokenResult {
         public String accessToken;

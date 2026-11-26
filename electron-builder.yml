@@ -1,7 +1,7 @@
 appId: com.iaforeveryone.sortboxemail
 productName: IA For EveryOne — SortBox E-Mail
 directories:
-  output: release/v0.1.3
+  output: release/v0.1.4
   buildResources: build
 files:
   - dist/**

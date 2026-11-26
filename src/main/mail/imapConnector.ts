@@ -15,6 +15,7 @@ import type {
   MailAccount,
   SyncProgressEvent,
 } from "../../shared/types.js";
+import { resolveMicrosoftClientId } from "../../shared/providers.js";
 import type { AppDatabase } from "../db/database.js";
 import { refreshMicrosoftToken } from "../credentials/microsoftOAuth.js";
 import type { SecretPayload, SecretVault } from "../credentials/vault.js";
@@ -203,14 +204,14 @@ export class ImapConnector {
 
     if (account.authMode === "microsoft_oauth") {
       const settings = this.db.getSettings();
+      const clientId = resolveMicrosoftClientId(settings.microsoftClientId);
       if (
         secret.expiresAt &&
         Date.now() > secret.expiresAt - 120_000 &&
-        secret.refreshToken &&
-        settings.microsoftClientId
+        secret.refreshToken
       ) {
         const refreshed = await refreshMicrosoftToken(
-          settings.microsoftClientId,
+          clientId,
           secret.refreshToken,
         );
         const updated: SecretPayload = {

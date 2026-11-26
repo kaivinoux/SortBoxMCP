@@ -3,7 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, ipcMain, safeStorage, shell } from "electron";
-import { detectProviderFromEmail } from "../shared/providers.js";
+import {
+  DEFAULT_MICROSOFT_CLIENT_ID,
+  detectProviderFromEmail,
+  extractCustomMicrosoftClientId,
+  resolveMicrosoftClientId,
+} from "../shared/providers.js";
 import type {
   AddAccountInput,
   AppSettings,
@@ -289,9 +294,11 @@ async function boot(): Promise<void> {
       loginHint?: string,
       targetAccountId?: string,
     ) => {
-      const effectiveClientId = (
-        clientId || db.getSettings().microsoftClientId
-      ).trim();
+      const currentSettings = db.getSettings();
+      const effectiveClientId = resolveMicrosoftClientId(
+        clientId,
+        extractCustomMicrosoftClientId(currentSettings.microsoftClientId),
+      );
       const targetAcc = targetAccountId
         ? db.getAccount(targetAccountId)
         : undefined;
@@ -305,8 +312,10 @@ async function boot(): Promise<void> {
       if (!email) {
         throw new Error("Impossible de déterminer l'adresse email Microsoft.");
       }
-      if (effectiveClientId) {
-        db.saveSettings({ microsoftClientId: effectiveClientId });
+      const persistedCustom =
+        effectiveClientId === DEFAULT_MICROSOFT_CLIENT_ID ? "" : effectiveClientId;
+      if (persistedCustom !== currentSettings.microsoftClientId) {
+        db.saveSettings({ microsoftClientId: persistedCustom });
       }
       const existing = targetAcc || db.getAccountByEmail(email);
       const account = existing

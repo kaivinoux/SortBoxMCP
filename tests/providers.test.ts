@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_MICROSOFT_CLIENT_ID,
   PROVIDER_PRESETS,
   detectProviderFromEmail,
+  extractCustomMicrosoftClientId,
+  resolveMicrosoftClientId,
 } from "../src/shared/providers.js";
 
 describe("detectProviderFromEmail", () => {
@@ -40,5 +43,19 @@ describe("detectProviderFromEmail", () => {
       expect(preset.guideUrl).toMatch(/^https:\/\//);
       expect(preset.guideLinkLabel?.length).toBeGreaterThan(3);
     }
+  });
+
+  it("resolves built-in Microsoft Client ID while hiding it from UI custom overrides", () => {
+    expect(DEFAULT_MICROSOFT_CLIENT_ID).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(resolveMicrosoftClientId()).toBe(DEFAULT_MICROSOFT_CLIENT_ID);
+    expect(resolveMicrosoftClientId("", "")).toBe(DEFAULT_MICROSOFT_CLIENT_ID);
+    expect(resolveMicrosoftClientId("", "custom-saved-id")).toBe("custom-saved-id");
+    expect(resolveMicrosoftClientId("explicit-id", "custom-saved-id")).toBe("explicit-id");
+
+    expect(extractCustomMicrosoftClientId("")).toBe("");
+    expect(extractCustomMicrosoftClientId(DEFAULT_MICROSOFT_CLIENT_ID)).toBe("");
+    expect(extractCustomMicrosoftClientId("custom-tenant-app-id")).toBe(
+      "custom-tenant-app-id",
+    );
   });
 });

@@ -1,7 +1,10 @@
 import { Capacitor } from "@capacitor/core";
 import React, { useEffect, useState } from "react";
 import { ExternalLink, KeyRound, Mail, ShieldCheck, X } from "lucide-react";
-import type { ProviderPreset } from "../../shared/providers.js";
+import {
+  extractCustomMicrosoftClientId,
+  type ProviderPreset,
+} from "../../shared/providers.js";
 import type { AuthMode, MailAccount } from "../../shared/types.js";
 
 interface AddAccountModalProps {
@@ -27,7 +30,10 @@ export function AddAccountModal({
   const [imapPort, setImapPort] = useState(993);
   const [imapSecure, setImapSecure] = useState(true);
   const [secret, setSecret] = useState("");
-  const [msClientId, setMsClientId] = useState(defaultMicrosoftClientId);
+  const [msClientId, setMsClientId] = useState(() =>
+    extractCustomMicrosoftClientId(defaultMicrosoftClientId),
+  );
+  const [showMsAdvanced, setShowMsAdvanced] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [testing, setTesting] = useState(false);
@@ -41,12 +47,13 @@ export function AddAccountModal({
   const needsSecretInput = !isEditing || editingAccount?.hasCredentials === false;
 
   useEffect(() => {
-    setMsClientId(defaultMicrosoftClientId);
+    setMsClientId(extractCustomMicrosoftClientId(defaultMicrosoftClientId));
   }, [defaultMicrosoftClientId]);
 
   useEffect(() => {
     if (!open) return;
     setStatusMsg(null);
+    setShowMsAdvanced(false);
     if (editingAccount) {
       setEmail(editingAccount.email);
       setLabel(editingAccount.label || editingAccount.email);
@@ -168,8 +175,15 @@ export function AddAccountModal({
     setSaving(true);
     setStatusMsg(null);
     try {
+      const customId = msClientId.trim();
+      const prevCustomId = extractCustomMicrosoftClientId(
+        defaultMicrosoftClientId,
+      );
+      if (!customId && prevCustomId) {
+        await window.sortbox.settings.save({ microsoftClientId: "" });
+      }
       const account = await window.sortbox.accounts.microsoftLogin(
-        msClientId,
+        customId,
         email || undefined,
         editingAccount?.id,
       );
@@ -328,18 +342,9 @@ export function AddAccountModal({
 
           {authMode === "microsoft_oauth" ? (
             <div className="space-y-3 p-3.5 rounded-xl bg-slate-950 border border-slate-800">
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">
-                  Client ID Azure (App publique, redirection http://127.0.0.1)
-                </label>
-                <input
-                  type="text"
-                  value={msClientId}
-                  onChange={(e) => setMsClientId(e.target.value)}
-                  placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono outline-none focus:border-sky-500"
-                />
-              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Connexion directe et sécurisée via la page officielle Microsoft (OAuth2 / PKCE). Aucun identifiant technique à saisir.
+              </p>
               <button
                 type="button"
                 disabled={saving}
@@ -350,6 +355,32 @@ export function AddAccountModal({
                   ? "Ouverture du navigateur Microsoft..."
                   : "Connecter avec Microsoft (OAuth2)"}
               </button>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowMsAdvanced((v) => !v)}
+                  className="text-[11px] text-slate-400 hover:text-slate-200 cursor-pointer"
+                >
+                  {showMsAdvanced
+                    ? "▼ Masquer l'option Azure personnalisée"
+                    : `▶ Option avancée : Client ID Azure personnalisé${msClientId.trim() ? " (actif)" : ""}`}
+                </button>
+                {showMsAdvanced && (
+                  <div className="mt-2">
+                    <label className="block text-[11px] text-slate-400 mb-1">
+                      Client ID Azure personnalisé (optionnel, redirection{" "}
+                      <code>http://127.0.0.1/callback</code> — laisser vide par défaut)
+                    </label>
+                    <input
+                      type="text"
+                      value={msClientId}
+                      onChange={(e) => setMsClientId(e.target.value)}
+                      placeholder="Identifiant intégré utilisé par défaut"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono outline-none focus:border-sky-500"
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             <div className="space-y-3">

@@ -225,3 +225,31 @@ export function detectProviderFromEmail(email: string): ProviderPreset {
     imapHost: domain ? `imap.${domain}` : "",
   };
 }
+
+export const DEFAULT_MICROSOFT_CLIENT_ID =
+  "b038a8f9-be23-4b78-9221-3d60bdf79004";
+
+/**
+ * Resolves the effective Microsoft OAuth2 Client ID from an explicit UI override,
+ * saved custom setting, or SortBox's built-in public PKCE app registration.
+ */
+export function resolveMicrosoftClientId(
+  overrideClientId?: string | null,
+  savedClientId?: string | null,
+): string {
+  const explicit = (overrideClientId ?? "").trim();
+  if (explicit) return explicit;
+  const saved = (savedClientId ?? "").trim();
+  if (saved) return saved;
+  return DEFAULT_MICROSOFT_CLIENT_ID;
+}
+
+/**
+ * Masks the built-in default Client ID so account UI forms keep it hidden.
+ */
+export function extractCustomMicrosoftClientId(
+  savedClientId?: string | null,
+): string {
+  const trimmed = (savedClientId ?? "").trim();
+  return trimmed && trimmed !== DEFAULT_MICROSOFT_CLIENT_ID ? trimmed : "";
+}
