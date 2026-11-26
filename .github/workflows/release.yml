@@ -35,7 +35,7 @@ jobs:
           npm test
 
       - name: Build unpacked Windows binary
-        run: npx electron-builder --win dir --publish never -c.directories.output=release/ci
+        run: npx electron-builder --win dir --publish never --config.directories.output=release/ci
         env:
           CSC_LINK: ""
           CSC_KEY_PASSWORD: ""
@@ -118,7 +118,7 @@ jobs:
         run: Copy-Item -Path "signed-overlay\*.exe" -Destination "prepackaged-app\" -Force
 
       - name: Build NSIS installer and zip from prepackaged app
-        run: npx electron-builder --win nsis zip --prepackaged prepackaged-app --publish never -c.directories.output=release/final
+        run: npx electron-builder --win nsis zip --prepackaged prepackaged-app --publish never --config.directories.output=release/final
         env:
           CSC_LINK: ""
           CSC_KEY_PASSWORD: ""
