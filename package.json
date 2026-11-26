@@ -18,7 +18,8 @@
     "cap:sync": "npm run build:renderer && cap sync android",
     "start": "npm run build && electron .",
     "test": "vitest run",
-    "dist:win": "npm run build && electron-builder --win"
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:store": "npm run build && electron-builder --win appx --publish never"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.3",

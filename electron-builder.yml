@@ -16,6 +16,16 @@ win:
       arch:
         - x64
   artifactName: IA-For-EveryOne-SortBox-Email-${version}-win.${ext}
+appx:
+  identityName: KvinG.IAForEveryOneSortBoxE-Mail
+  publisher: CN=553B6834-CD38-44B8-BC8C-2FA41E15BBED
+  publisherDisplayName: Kévin G.
+  applicationId: IAForEveryOneSortBoxEmail
+  displayName: IA For EveryOne — SortBox E-Mail
+  backgroundColor: "#0f172a"
+  languages:
+    - fr-FR
+    - en-US
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
