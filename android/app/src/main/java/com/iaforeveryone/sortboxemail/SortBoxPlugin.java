@@ -136,6 +136,14 @@ public class SortBoxPlugin extends Plugin {
         });
     }
 
+    private String optStr(JSObject data, String key, String fallback) {
+        if (data != null && data.has(key) && !data.isNull(key)) {
+            String val = data.optString(key, fallback);
+            return val != null ? val : fallback;
+        }
+        return fallback;
+    }
+
     @PluginMethod
     public void accountsUpdate(PluginCall call) {
         executor.execute(() -> {
@@ -146,13 +154,16 @@ public class SortBoxPlugin extends Plugin {
                     call.reject("Compte introuvable.");
                     return;
                 }
-                String label = call.has("label") ? call.getString("label", existing.getString("label")) : existing.getString("label");
-                String provider = call.has("provider") ? call.getString("provider", existing.getString("provider")) : existing.getString("provider");
-                String authMode = call.has("authMode") ? call.getString("authMode", existing.getString("authMode")) : existing.getString("authMode");
-                String imapHost = call.has("imapHost") ? call.getString("imapHost", existing.getString("imapHost")) : existing.getString("imapHost");
-                int imapPort = call.has("imapPort") ? call.getInt("imapPort", existing.getInt("imapPort")) : existing.getInt("imapPort");
-                boolean imapSecure = call.has("imapSecure")
-                    ? Boolean.TRUE.equals(call.getBoolean("imapSecure", existing.getBoolean("imapSecure")))
+                JSObject data = call.getData();
+                String label = optStr(data, "label", existing.getString("label"));
+                String provider = optStr(data, "provider", existing.getString("provider"));
+                String authMode = optStr(data, "authMode", existing.getString("authMode"));
+                String imapHost = optStr(data, "imapHost", existing.getString("imapHost"));
+                int imapPort = (data != null && data.has("imapPort") && !data.isNull("imapPort"))
+                    ? data.optInt("imapPort", existing.getInt("imapPort"))
+                    : existing.getInt("imapPort");
+                boolean imapSecure = (data != null && data.has("imapSecure") && !data.isNull("imapSecure"))
+                    ? data.optBoolean("imapSecure", existing.getBoolean("imapSecure"))
                     : existing.getBoolean("imapSecure");
 
                 JSObject updated = db.updateAccount(id, label, provider, authMode, imapHost, imapPort, imapSecure);
