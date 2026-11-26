@@ -1,6 +1,8 @@
+import { Capacitor } from "@capacitor/core";
 import React, { useEffect, useState } from "react";
 import { Bot, ClipboardCheck, Copy, Sparkles } from "lucide-react";
 import type { AppSettings, MailAccount } from "../../shared/types.js";
+import { useI18n } from "../i18n/I18nContext.js";
 
 interface AiExportViewProps {
   accounts: MailAccount[];
@@ -19,6 +21,7 @@ export function AiExportView({
   onImportJsonPlan,
   onRunBuiltinAi,
 }: AiExportViewProps) {
+  const { t } = useI18n();
   const [targetAccountId, setTargetAccountId] = useState(
     activeAccountId !== "all" ? activeAccountId : accounts[0]?.id || "",
   );
@@ -64,7 +67,7 @@ export function AiExportView({
 
   async function handleImportJson() {
     if (!targetAccountId) {
-      setFeedback({ type: "error", text: "Sélectionne d'abord un compte cible." });
+      setFeedback({ type: "error", text: t.ai.selectAccountFirst });
       return;
     }
     setFeedback(null);
@@ -72,7 +75,7 @@ export function AiExportView({
       await onImportJsonPlan(targetAccountId, jsonInput);
       setFeedback({
         type: "ok",
-        text: "Plan chargé dans l'onglet « Plan & Dry-Run ».",
+        text: t.ai.planLoaded,
       });
     } catch (err) {
       setFeedback({
@@ -88,9 +91,7 @@ export function AiExportView({
     setApiKeyInput("");
     setFeedback({
       type: "ok",
-      text: saved
-        ? "Clé API chiffrée dans le coffre Windows DPAPI."
-        : "Clé API supprimée.",
+      text: saved ? t.ai.apiKeySaved : t.ai.apiKeyDeleted,
     });
   }
 
@@ -102,7 +103,7 @@ export function AiExportView({
       await onRunBuiltinAi(targetAccountId);
       setFeedback({
         type: "ok",
-        text: "Analyse IA terminée : le plan est prêt dans « Plan & Dry-Run ».",
+        text: t.ai.analysisDone,
       });
     } catch (err) {
       setFeedback({
@@ -119,10 +120,10 @@ export function AiExportView({
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">
-            Assistant IA Optionnel — Sans Agent Externe
+            {t.ai.title}
           </h2>
           <p className="text-xs text-slate-400">
-            Même sans Antigravity ou Claude Desktop, classe tes expéditeurs inconnus via Copier-Coller gratuit ou une IA locale/API.
+            {t.ai.subtitle}
           </p>
         </div>
 
@@ -157,10 +158,10 @@ export function AiExportView({
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-semibold flex items-center gap-1.5">
               <Sparkles className="w-4 h-4 text-sky-400" />
-              Mode A — Copier-Coller gratuit (ChatGPT / Gemini / Claude Web)
+              {t.ai.modeATitle}
             </h3>
             <span className="text-xs px-2 py-0.5 rounded bg-slate-800 text-emerald-300">
-              0 € • 0 clé API
+              {t.ai.modeABadge}
             </span>
           </div>
 
@@ -171,7 +172,7 @@ export function AiExportView({
               onChange={(e) => setOnlyUnknown(e.target.checked)}
               className="accent-sky-500"
             />
-            Exporter uniquement les expéditeurs non reconnus par le dictionnaire
+            {t.ai.onlyUnknownLabel}
           </label>
 
           <div className="flex items-center gap-2">
@@ -180,7 +181,7 @@ export function AiExportView({
               onClick={handleGeneratePrompt}
               className="text-xs px-3 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold cursor-pointer"
             >
-              Générer le résumé anonyme
+              {t.ai.generateBtn}
             </button>
             <button
               type="button"
@@ -191,12 +192,12 @@ export function AiExportView({
               {copied ? (
                 <>
                   <ClipboardCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  Copié
+                  {t.ai.copied}
                 </>
               ) : (
                 <>
                   <Copy className="w-3.5 h-3.5" />
-                  Copier
+                  {t.ai.copy}
                 </>
               )}
             </button>
@@ -206,19 +207,19 @@ export function AiExportView({
             readOnly
             rows={7}
             value={promptText}
-            placeholder="Clique sur « Générer le résumé anonyme » puis colle ce texte dans ChatGPT, Gemini ou Claude..."
+            placeholder={t.ai.promptPlaceholder}
             className="w-full text-xs font-mono bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-slate-300 outline-none"
           />
 
           <div className="pt-2 border-t border-slate-800 space-y-2">
             <label className="block text-xs font-medium text-slate-300">
-              Colle ici le JSON retourné par l&apos;IA :
+              {t.ai.pasteJsonLabel}
             </label>
             <textarea
               rows={5}
               value={jsonInput}
               onChange={(e) => setJsonInput(e.target.value)}
-              placeholder='{"title":"Tri IA","moves":[{"dest":"__TRASH__","domains":["..."]}]}'
+              placeholder={t.ai.jsonPlaceholder}
               className="w-full text-xs font-mono bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-slate-200 outline-none focus:border-sky-500"
             />
             <button
@@ -227,7 +228,7 @@ export function AiExportView({
               onClick={handleImportJson}
               className="text-xs px-3.5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold cursor-pointer disabled:opacity-40"
             >
-              Charger dans l&apos;aperçu Dry-Run
+              {t.ai.loadDryRunBtn}
             </button>
           </div>
         </div>
@@ -237,13 +238,13 @@ export function AiExportView({
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-semibold flex items-center gap-1.5">
               <Bot className="w-4 h-4 text-violet-400" />
-              Mode B — IA intégrée (Ollama local ou clé API)
+              {t.ai.modeBTitle}
             </h3>
           </div>
 
           <div className="space-y-3 text-xs">
             <div>
-              <label className="block text-slate-400 mb-1">Fournisseur IA</label>
+              <label className="block text-slate-400 mb-1">{t.ai.providerLabel}</label>
               <select
                 value={settings.aiProvider}
                 onChange={(e) =>
@@ -253,22 +254,22 @@ export function AiExportView({
                 }
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 outline-none"
               >
-                <option value="none">Désactivé (tri manuel + Copier-Coller)</option>
-                <option value="ollama">Ollama Local (100 % privé, gratuit)</option>
-                <option value="gemini">Google Gemini API (clé perso)</option>
-                <option value="openai_compat">OpenAI / Groq / LM Studio (compatible)</option>
+                <option value="none">{t.ai.providerNone}</option>
+                <option value="ollama">{t.ai.providerOllama}</option>
+                <option value="gemini">{t.ai.providerGemini}</option>
+                <option value="openai_compat">{t.ai.providerOpenAiCompat}</option>
               </select>
             </div>
 
             {settings.aiProvider !== "none" && (
               <>
                 <div>
-                  <label className="block text-slate-400 mb-1">Modèle</label>
+                  <label className="block text-slate-400 mb-1">{t.ai.modelLabel}</label>
                   <input
                     type="text"
                     value={settings.aiModel}
                     onChange={(e) => onSaveSettings({ aiModel: e.target.value })}
-                    placeholder="qwen2.5:7b ou gemini-2.5-flash"
+                    placeholder="qwen2.5:7b / gemini-2.5-flash"
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 outline-none"
                   />
                 </div>
@@ -276,7 +277,7 @@ export function AiExportView({
                 {(settings.aiProvider === "ollama" ||
                   settings.aiProvider === "openai_compat") && (
                   <div>
-                    <label className="block text-slate-400 mb-1">Endpoint URL</label>
+                    <label className="block text-slate-400 mb-1">{t.ai.endpointLabel}</label>
                     <input
                       type="text"
                       value={settings.aiEndpoint}
@@ -292,15 +293,17 @@ export function AiExportView({
                 {settings.aiProvider !== "ollama" && (
                   <div className="space-y-1.5">
                     <label className="block text-slate-400">
-                      Clé API (chiffrée Windows DPAPI •{" "}
-                      {hasApiKey ? "clé enregistrée" : "aucune clé"})
+                      {Capacitor.isNativePlatform()
+                        ? t.ai.apiKeyLabelAndroid
+                        : t.ai.apiKeyLabelDesktop}{" "}
+                      • {hasApiKey ? t.ai.keySaved : t.ai.noKey})
                     </label>
                     <div className="flex gap-2">
                       <input
                         type="password"
                         value={apiKeyInput}
                         onChange={(e) => setApiKeyInput(e.target.value)}
-                        placeholder="Coller nouvelle clé API..."
+                        placeholder={t.ai.keyPlaceholder}
                         className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 outline-none"
                       />
                       <button
@@ -308,7 +311,7 @@ export function AiExportView({
                         onClick={handleSaveKey}
                         className="px-3 py-2 rounded-lg border border-slate-700 hover:bg-slate-800 cursor-pointer"
                       >
-                        Sauver
+                        {t.ai.saveBtn}
                       </button>
                     </div>
                   </div>
@@ -320,9 +323,7 @@ export function AiExportView({
                   onClick={handleRunBuiltin}
                   className="w-full py-2.5 rounded-lg bg-violet-500 hover:bg-violet-400 text-slate-950 font-semibold cursor-pointer disabled:opacity-40"
                 >
-                  {runningAi
-                    ? "Analyse en cours..."
-                    : "Lancer l'analyse IA et créer un plan Dry-Run"}
+                  {runningAi ? t.ai.analyzing : t.ai.runBtn}
                 </button>
               </>
             )}

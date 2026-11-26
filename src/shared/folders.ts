@@ -1,3 +1,5 @@
+import { DEFAULT_LANGUAGE, getMessages, type AppLanguage } from "./i18n.js";
+
 export const SPECIAL_TRASH = "__TRASH__";
 export const SPECIAL_JUNK = "__JUNK__";
 export const SPECIAL_ARCHIVE = "__ARCHIVE__";
@@ -60,9 +62,13 @@ export function isArchiveDestination(dest: string): boolean {
   return ARCHIVE_ALIASES.has(dest.trim().toLowerCase());
 }
 
-export function formatDestinationLabel(dest: string): string {
-  if (dest === SPECIAL_TRASH) return "Corbeille (dossier système)";
-  if (dest === SPECIAL_JUNK) return "Spam / Indésirables (dossier système)";
-  if (dest === SPECIAL_ARCHIVE) return "Archives (dossier système)";
-  return dest;
+export function formatDestinationLabel(
+  dest: string,
+  lang: AppLanguage = DEFAULT_LANGUAGE,
+): string {
+  const { destinations } = getMessages(lang);
+  if (dest === SPECIAL_TRASH) return destinations.trashSystem;
+  if (dest === SPECIAL_JUNK) return destinations.junkSystem;
+  if (dest === SPECIAL_ARCHIVE) return destinations.archiveSystem;
+  return destinations.customMap[dest] ?? dest;
 }

@@ -22,7 +22,7 @@ Download the latest release from the [Releases](https://github.com/kaivinoux/Sor
 
 ### Quick Download (Android `.apk`)
 
-Download `IA-For-EveryOne-SortBox-Email-Android.apk` from the [Releases](https://github.com/kaivinoux/SortBoxMCP/releases) page (`android-v*` tag, e.g. [android-v0.2.1](https://github.com/kaivinoux/SortBoxMCP/releases/tag/android-v0.2.1)) or from the [Android APK](.github/workflows/android.yml) workflow artifacts, then open the `.apk` file on your Android phone (allow installing from unknown sources if Android prompts you).
+Download `IA-For-EveryOne-SortBox-Email-Android.apk` from the [Releases](https://github.com/kaivinoux/SortBoxMCP/releases) page (`android-v*` tag, e.g. [android-v0.2.2](https://github.com/kaivinoux/SortBoxMCP/releases/tag/android-v0.2.2)) or from the [Android APK](.github/workflows/android.yml) workflow artifacts, then open the `.apk` file on your Android phone (allow installing from unknown sources if Android prompts you).
 
 - **100% local on the phone:** secrets encrypted with **Android Keystore (`AES-256-GCM`)**, local SQLite index on the device, Android cloud backup disabled (`allowBackup=false`).
 - **Same sorting workflow:** direct IMAP connection (Orange, Gmail App Password, Free, SFR, La Poste, OVH, iCloud, Yahoo, 1-click Outlook/Hotmail OAuth2), no-AI sender grouping, 1-click verified newsletter unsubscribe, account manager, Dry-Run preview, batched waves, Undo, and Copy-Paste / API AI mode. *(The local MCP server remains exclusive to the Windows desktop version.)*
@@ -68,7 +68,7 @@ npm.cmd run dist:win
 npm.cmd run cap:sync
 ```
 
-> Note: the `zip` target produces `release/v0.1.4/win-unpacked/IA For EveryOne — SortBox E-Mail.exe` and `release/v0.1.4/IA-For-EveryOne-SortBox-Email-0.1.4-win.zip` without triggering Windows blocks on unsigned NSIS temporary binaries. To generate an NSIS `Setup.exe` (such as with a signing certificate), run `.\node_modules\.bin\electron-builder.cmd --win nsis`.
+> Note: the `zip` target produces `release/v0.1.5/win-unpacked/IA For EveryOne — SortBox E-Mail.exe` and `release/v0.1.5/IA-For-EveryOne-SortBox-Email-0.1.5-win.zip` without triggering Windows blocks on unsigned NSIS temporary binaries. To generate an NSIS `Setup.exe` (such as with a signing certificate), run `.\node_modules\.bin\electron-builder.cmd --win nsis`.
 
 ### Code Signing Policy
 
@@ -98,7 +98,7 @@ Télécharge la dernière version depuis la page [Releases](https://github.com/k
 
 ### Téléchargement rapide (Android `.apk`)
 
-Télécharge le fichier `IA-For-EveryOne-SortBox-Email-Android.apk` depuis la page [Releases](https://github.com/kaivinoux/SortBoxMCP/releases) (tag `android-v*`, par ex. [android-v0.2.1](https://github.com/kaivinoux/SortBoxMCP/releases/tag/android-v0.2.1)) ou depuis les artefacts du workflow [Android APK](.github/workflows/android.yml), puis ouvre le fichier `.apk` sur ton téléphone Android (autorise l'installation d'applications de source inconnue si Android le demande).
+Télécharge le fichier `IA-For-EveryOne-SortBox-Email-Android.apk` depuis la page [Releases](https://github.com/kaivinoux/SortBoxMCP/releases) (tag `android-v*`, par ex. [android-v0.2.2](https://github.com/kaivinoux/SortBoxMCP/releases/tag/android-v0.2.2)) ou depuis les artefacts du workflow [Android APK](.github/workflows/android.yml), puis ouvre le fichier `.apk` sur ton téléphone Android (autorise l'installation d'applications de source inconnue si Android le demande).
 
 - **100 % local sur le téléphone :** secrets chiffrés via **Android Keystore (`AES-256-GCM`)**, index SQLite local sur l'appareil, sauvegarde cloud Android désactivée (`allowBackup=false`).
 - **Mêmes outils de tri :** connexion directe IMAP (Orange, Gmail App Password, Free, SFR, La Poste, OVH, iCloud, Yahoo, Outlook / Hotmail OAuth2 en 1 clic), groupement par expéditeur sans IA, désinscription newsletter vérifiée, gestionnaire de comptes, aperçu Dry-Run, exécution par vagues, Undo et mode IA Copier-Coller / API. *(Le serveur MCP local reste spécifique à la version PC Windows.)*
@@ -144,7 +144,7 @@ npm.cmd run dist:win
 npm.cmd run cap:sync
 ```
 
-> Note : la cible `zip` produit `release/v0.1.4/win-unpacked/IA For EveryOne — SortBox E-Mail.exe` et `release/v0.1.4/IA-For-EveryOne-SortBox-Email-0.1.4-win.zip` sans déclencher le blocage Windows sur les binaires temporaires NSIS non signés. Pour générer un `Setup.exe` NSIS (notamment avec certificat de signature), lance `.\node_modules\.bin\electron-builder.cmd --win nsis`.
+> Note : la cible `zip` produit `release/v0.1.5/win-unpacked/IA For EveryOne — SortBox E-Mail.exe` et `release/v0.1.5/IA-For-EveryOne-SortBox-Email-0.1.5-win.zip` sans déclencher le blocage Windows sur les binaires temporaires NSIS non signés. Pour générer un `Setup.exe` NSIS (notamment avec certificat de signature), lance `.\node_modules\.bin\electron-builder.cmd --win nsis`.
 
 ### Politique de signature de code
 

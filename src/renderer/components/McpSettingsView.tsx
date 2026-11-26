@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { Check, Copy, Cpu, Shield } from "lucide-react";
+import { formatMessage } from "../../shared/i18n.js";
 import type {
   AppSettings,
   MailAccount,
   McpActivityEvent,
 } from "../../shared/types.js";
 import { AccountList } from "./AccountList.js";
+import { useI18n } from "../i18n/I18nContext.js";
 
 interface McpSettingsViewProps {
   accounts: MailAccount[];
@@ -36,6 +38,7 @@ export function McpSettingsView({
   onTestSavedAccount,
   onAddAccount,
 }: McpSettingsViewProps) {
+  const { t } = useI18n();
   const [stdioInfo, setStdioInfo] = useState<{
     executable: string;
     args: string[];
@@ -87,10 +90,10 @@ export function McpSettingsView({
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-xs text-slate-300 space-y-1">
           <div className="font-semibold text-sky-300 flex items-center gap-2">
             <Cpu className="w-4 h-4" />
-            Mode Mobile Android
+            {t.mcp.mobileTitle}
           </div>
           <p className="text-slate-400">
-            Le serveur MCP pour connecter des agents IA externes (Antigravity, Claude Desktop, Cursor) est disponible sur la version PC Windows. Sur téléphone, tous les modes de tri (Sans IA, Copier-Coller IA, Ollama/API, Dry-Run &amp; Undo) sont actifs localement.
+            {t.mcp.mobileDesc}
           </p>
         </div>
       ) : (
@@ -99,10 +102,10 @@ export function McpSettingsView({
             <div>
               <h2 className="text-sm font-semibold flex items-center gap-2">
                 <Cpu className="w-4 h-4 text-sky-400" />
-                Serveur MCP Local (Antigravity, Claude Desktop, Cursor)
+                {t.mcp.serverTitle}
               </h2>
               <p className="text-xs text-slate-400">
-                Optionnel — permet à ton agent IA de consulter le cache SQLite et de pousser des plans dans « Plan &amp; Dry-Run ».
+                {t.mcp.serverDesc}
               </p>
             </div>
 
@@ -113,7 +116,10 @@ export function McpSettingsView({
                 onChange={(e) => onSaveSettings({ mcpEnabled: e.target.checked })}
                 className="accent-sky-500"
               />
-              Serveur MCP HTTP {mcpStatus.running ? `actif (${mcpStatus.url})` : "désactivé"}
+              {t.mcp.statusPrefix}{" "}
+              {mcpStatus.running
+                ? `${t.mcp.statusActive} (${mcpStatus.url})`
+                : t.mcp.statusInactive}
             </label>
           </div>
 
@@ -128,21 +134,21 @@ export function McpSettingsView({
               className="accent-emerald-500"
             />
             <span>
-              <strong>Verrou de sécurité (recommandé) :</strong> toujours exiger ma validation manuelle dans l&apos;app Windows avant d&apos;exécuter un déplacement proposé par une IA.
+              <strong>{t.mcp.safetyStrong}</strong> {t.mcp.safetyDesc}
             </span>
           </label>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold">Config Streamable HTTP (app ouverte)</span>
+                <span className="font-semibold">{t.mcp.httpConfigTitle}</span>
                 <button
                   type="button"
                   onClick={() => copySnippet("http", httpSnippet)}
                   className="text-sky-400 hover:underline flex items-center gap-1 cursor-pointer"
                 >
                   {copiedMode === "http" ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  {copiedMode === "http" ? "Copié" : "Copier"}
+                  {copiedMode === "http" ? t.mcp.copied : t.mcp.copy}
                 </button>
               </div>
               <pre className="text-xs font-mono text-slate-300 overflow-x-auto">{httpSnippet}</pre>
@@ -150,14 +156,14 @@ export function McpSettingsView({
 
             <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold">Config Stdio (mode headless)</span>
+                <span className="font-semibold">{t.mcp.stdioConfigTitle}</span>
                 <button
                   type="button"
                   onClick={() => copySnippet("stdio", stdioSnippet)}
                   className="text-sky-400 hover:underline flex items-center gap-1 cursor-pointer"
                 >
                   {copiedMode === "stdio" ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  {copiedMode === "stdio" ? "Copié" : "Copier"}
+                  {copiedMode === "stdio" ? t.mcp.copied : t.mcp.copy}
                 </button>
               </div>
               <pre className="text-xs font-mono text-slate-300 overflow-x-auto">{stdioSnippet}</pre>
@@ -170,12 +176,12 @@ export function McpSettingsView({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 text-xs">
           <h3 className="font-semibold uppercase tracking-wider text-slate-400">
-            Paramètres IMAP & Comptes connectés ({accounts.length})
+            {formatMessage(t.mcp.settingsAccountsTitle, { count: accounts.length })}
           </h3>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-slate-400 mb-1">Taille d&apos;une vague (UIDs)</label>
+              <label className="block text-slate-400 mb-1">{t.mcp.waveSizeLabel}</label>
               <input
                 type="number"
                 min={10}
@@ -188,7 +194,7 @@ export function McpSettingsView({
               />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Pause entre vagues (ms)</label>
+              <label className="block text-slate-400 mb-1">{t.mcp.waveDelayLabel}</label>
               <input
                 type="number"
                 min={0}
@@ -216,11 +222,11 @@ export function McpSettingsView({
 
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 text-xs">
           <h3 className="font-semibold uppercase tracking-wider text-slate-400">
-            Journal d&apos;activité MCP en direct
+            {t.mcp.liveLogTitle}
           </h3>
           {mcpActivity.length === 0 ? (
             <p className="text-slate-500">
-              Aucun appel MCP enregistré pendant cette session.
+              {t.mcp.noLogs}
             </p>
           ) : (
             <div className="space-y-2 max-h-60 overflow-y-auto">

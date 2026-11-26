@@ -8,7 +8,9 @@ import {
   Trash2,
   Unplug,
 } from "lucide-react";
+import { formatMessage } from "../../shared/i18n.js";
 import type { MailAccount } from "../../shared/types.js";
+import { useI18n } from "../i18n/I18nContext.js";
 
 interface AccountListProps {
   accounts: MailAccount[];
@@ -29,6 +31,7 @@ export function AccountList({
   onTestSavedAccount,
   onAddNew,
 }: AccountListProps) {
+  const { t } = useI18n();
   const [testingId, setTestingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<
@@ -43,7 +46,7 @@ export function AccountList({
         ...prev,
         [acc.id]: {
           ok: true,
-          text: `Connexion OK (${res.folderCount} dossiers)`,
+          text: formatMessage(t.accountList.testOk, { count: res.folderCount }),
         },
       }));
     } catch (err) {
@@ -63,7 +66,7 @@ export function AccountList({
     <div className="space-y-2.5 text-xs">
       {accounts.length === 0 ? (
         <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-slate-400 text-center space-y-2">
-          <p>Aucune boîte mail enregistrée pour le moment.</p>
+          <p>{t.accountList.noMailboxes}</p>
           {onAddNew && (
             <button
               type="button"
@@ -71,7 +74,7 @@ export function AccountList({
               className="px-3 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold inline-flex items-center gap-1 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
-              Connecter une boîte mail
+              {t.accountList.connectBtn}
             </button>
           )}
         </div>
@@ -94,24 +97,24 @@ export function AccountList({
                     </span>
                     {!isConnected ? (
                       <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-amber-950/70 border border-amber-700/80 text-amber-300">
-                        Déconnecté
+                        {t.accountList.disconnected}
                       </span>
                     ) : acc.lastSyncStatus === "error" ? (
                       <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-rose-950/70 border border-rose-700/80 text-rose-300">
-                        Erreur sync
+                        {t.accountList.syncError}
                       </span>
                     ) : (
                       <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-emerald-950/70 border border-emerald-700/80 text-emerald-300 inline-flex items-center gap-0.5">
                         <CheckCircle2 className="w-2.5 h-2.5" />
-                        Connecté
+                        {t.accountList.connected}
                       </span>
                     )}
                   </div>
                   <div className="text-slate-400 mt-0.5">
                     {acc.imapHost}:{acc.imapPort} ({acc.imapSecure ? "SSL/TLS" : "STARTTLS"}) •{" "}
                     {acc.authMode === "microsoft_oauth"
-                      ? "OAuth2 Microsoft"
-                      : "Mot de passe IMAP / d'app"}
+                      ? t.accountList.oauthLabel
+                      : t.accountList.imapPassLabel}
                   </div>
                   {acc.lastSyncError && isConnected && (
                     <div className="text-rose-300 mt-1 break-words">
@@ -135,20 +138,20 @@ export function AccountList({
                       type="button"
                       disabled={testingId === acc.id}
                       onClick={() => handleTest(acc)}
-                      title="Tester la connexion IMAP avec les identifiants enregistrés"
+                      title={t.accountList.testTitle}
                       className="px-2.5 py-1 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-200 inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
                     >
                       <RefreshCw
                         className={`w-3 h-3 ${testingId === acc.id ? "animate-spin" : ""}`}
                       />
-                      Tester
+                      {t.accountList.testBtn}
                     </button>
                   )}
 
                   <button
                     type="button"
                     onClick={() => onEditAccount(acc)}
-                    title="Modifier le nom, les paramètres IMAP ou changer le mode de connexion"
+                    title={t.accountList.editTitle}
                     className={`px-2.5 py-1 rounded-lg border inline-flex items-center gap-1 cursor-pointer ${
                       isConnected
                         ? "border-sky-700/80 bg-sky-950/40 hover:bg-sky-900/50 text-sky-200"
@@ -158,12 +161,12 @@ export function AccountList({
                     {isConnected ? (
                       <>
                         <Edit3 className="w-3 h-3" />
-                        Modifier / Méthode
+                        {t.accountList.editBtn}
                       </>
                     ) : (
                       <>
                         <PlugZap className="w-3 h-3" />
-                        Reconnecter
+                        {t.accountList.reconnectBtn}
                       </>
                     )}
                   </button>
@@ -172,11 +175,11 @@ export function AccountList({
                     <button
                       type="button"
                       onClick={() => onDisconnectAccount(acc.id)}
-                      title="Déconnecter : efface le mot de passe / token du coffre local en gardant les mails indexés"
+                      title={t.accountList.disconnectTitle}
                       className="px-2.5 py-1 rounded-lg border border-amber-800/80 bg-amber-950/30 hover:bg-amber-900/40 text-amber-200 inline-flex items-center gap-1 cursor-pointer"
                     >
                       <Unplug className="w-3 h-3" />
-                      Déconnecter
+                      {t.accountList.disconnectBtn}
                     </button>
                   )}
 
@@ -190,21 +193,21 @@ export function AccountList({
                         }}
                         className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold cursor-pointer"
                       >
-                        Confirmer
+                        {t.accountList.confirmDeleteBtn}
                       </button>
                       <button
                         type="button"
                         onClick={() => setConfirmDeleteId(null)}
                         className="px-2 py-1 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-300 cursor-pointer"
                       >
-                        Annuler
+                        {t.accountList.cancelDeleteBtn}
                       </button>
                     </div>
                   ) : (
                     <button
                       type="button"
                       onClick={() => setConfirmDeleteId(acc.id)}
-                      title="Supprimer ce compte et tout son cache SQLite local"
+                      title={t.accountList.deleteTitle}
                       className="p-1.5 rounded-lg border border-slate-800 text-slate-400 hover:text-rose-400 hover:border-rose-800 cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />

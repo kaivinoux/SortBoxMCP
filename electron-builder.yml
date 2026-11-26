@@ -1,7 +1,7 @@
 appId: com.iaforeveryone.sortboxemail
 productName: IA For EveryOne — SortBox E-Mail
 directories:
-  output: release/v0.1.4
+  output: release/v0.1.5
   buildResources: build
 files:
   - dist/**
@@ -24,8 +24,12 @@ appx:
   displayName: IA For EveryOne — SortBox E-Mail
   backgroundColor: "#0f172a"
   languages:
-    - fr-FR
     - en-US
+    - fr-FR
+    - es-ES
+    - pt-PT
+    - it-IT
+    - de-DE
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true

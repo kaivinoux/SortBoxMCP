@@ -309,7 +309,7 @@ export function createAndroidSortBoxApi(): SortBoxApi {
       status: async () => ({ running: false, port: null, url: null }),
       activity: async () => [],
       getStdioCommand: async () => ({
-        executable: "Disponible sur la version PC Windows",
+        executable: "Available on the Windows desktop app",
         args: [],
       }),
     },

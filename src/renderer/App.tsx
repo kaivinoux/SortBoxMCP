@@ -1,6 +1,10 @@
 import { Capacitor } from "@capacitor/core";
 import React, { useCallback, useEffect, useState } from "react";
-import { Cpu, Layers, ListFilter, MailPlus, Settings2, Sparkles } from "lucide-react";
+import { Cpu, Languages, Layers, ListFilter, MailPlus, Settings2, Sparkles } from "lucide-react";
+import {
+  SUPPORTED_LANGUAGES,
+  type AppLanguage,
+} from "../shared/i18n.js";
 import type {
   AppSettings,
   AuditStats,
@@ -21,6 +25,7 @@ import { ManageAccountsModal } from "./components/ManageAccountsModal.js";
 import { McpSettingsView } from "./components/McpSettingsView.js";
 import { PlanView } from "./components/PlanView.js";
 import { TriageView } from "./components/TriageView.js";
+import { useI18n } from "./i18n/I18nContext.js";
 
 type TabId = "triage" | "plan" | "ai" | "mcp";
 
@@ -37,6 +42,7 @@ const INITIAL_SETTINGS: AppSettings = {
 };
 
 export default function App() {
+  const { lang, locale, t, setLang } = useI18n();
   const [tab, setTab] = useState<TabId>("triage");
   const [accounts, setAccounts] = useState<MailAccount[]>([]);
   const [activeAccountId, setActiveAccountId] = useState<string>("all");
@@ -197,12 +203,28 @@ export default function App() {
                 IA For EveryOne — SortBox E-Mail
               </h1>
               <p className="text-xs text-slate-400">
-                Tri universel multi-boîtes • 100 % local • Sans IA requise • Serveur MCP optionnel
+                {t.header.subtitle}
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            <div className="inline-flex items-center gap-1.5 text-xs bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2">
+              <Languages className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+              <select
+                aria-label={t.header.languageAria}
+                value={lang}
+                onChange={(e) => setLang(e.target.value as AppLanguage)}
+                className="bg-slate-950 text-slate-200 outline-none cursor-pointer"
+              >
+                {SUPPORTED_LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <select
               value={activeAccountId}
               onChange={(e) => {
@@ -212,10 +234,13 @@ export default function App() {
               }}
               className="text-xs bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 outline-none"
             >
-              <option value="all">Toutes les boîtes ({accounts.length})</option>
+              <option value="all">
+                {t.header.allMailboxes} ({accounts.length})
+              </option>
               {accounts.map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.label} ({a.email}){a.hasCredentials === false ? " [Déconnecté]" : ""}
+                  {a.label} ({a.email})
+                  {a.hasCredentials === false ? ` ${t.header.disconnectedTag}` : ""}
                 </option>
               ))}
             </select>
@@ -227,7 +252,7 @@ export default function App() {
                 className="text-xs px-3 py-2 rounded-lg border border-slate-700 bg-slate-950 hover:bg-slate-800 text-slate-200 font-medium flex items-center gap-1.5 cursor-pointer"
               >
                 <Settings2 className="w-3.5 h-3.5 text-sky-400" />
-                Gérer ({accounts.length})
+                {t.header.manageBtn} ({accounts.length})
               </button>
             )}
 
@@ -240,7 +265,7 @@ export default function App() {
               className="text-xs px-3.5 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold flex items-center gap-1.5 cursor-pointer"
             >
               <MailPlus className="w-3.5 h-3.5" />
-              Ajouter une boîte
+              {t.header.addMailboxBtn}
             </button>
           </div>
         </header>
@@ -253,7 +278,7 @@ export default function App() {
               onClick={() => setBannerError(null)}
               className="underline cursor-pointer"
             >
-              Fermer
+              {t.header.close}
             </button>
           </div>
         )}
@@ -263,10 +288,10 @@ export default function App() {
           <div className="bg-slate-900 border border-sky-800/70 rounded-2xl p-6 flex flex-wrap items-center justify-between gap-4">
             <div className="space-y-1">
               <h2 className="text-sm font-semibold text-sky-300">
-                Bienvenue dans IA For EveryOne — SortBox E-Mail !
+                {t.onboarding.title}
               </h2>
               <p className="text-xs text-slate-300 max-w-2xl">
-                Connecte ta première boîte mail (Orange, Gmail, Outlook, Free, OVH, iCloud ou IMAP) pour analyser tes expéditeurs hors-ligne et nettoyer ta boîte en toute sécurité avec aperçu Dry-Run.
+                {t.onboarding.body}
               </p>
             </div>
             <button
@@ -274,7 +299,7 @@ export default function App() {
               onClick={() => setAddModalOpen(true)}
               className="text-xs px-4 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold cursor-pointer"
             >
-              Connecter ma première boîte mail
+              {t.onboarding.cta}
             </button>
           </div>
         )}
@@ -295,9 +320,9 @@ export default function App() {
               >
                 <span className="flex items-center gap-2">
                   <ListFilter className="w-4 h-4" />
-                  1. Tri par Expéditeur
+                  {t.tabs.triage}
                 </span>
-                <span className="opacity-75">Sans IA</span>
+                <span className="opacity-75">{t.tabs.triageBadge}</span>
               </button>
 
               <button
@@ -311,7 +336,7 @@ export default function App() {
               >
                 <span className="flex items-center gap-2">
                   <Layers className="w-4 h-4" />
-                  2. Plan & Dry-Run
+                  {t.tabs.plan}
                 </span>
                 {pendingMoveCount > 0 && (
                   <span className="px-1.5 py-0.5 rounded-md bg-emerald-500 text-slate-950 font-bold tabular-nums">
@@ -331,9 +356,9 @@ export default function App() {
               >
                 <span className="flex items-center gap-2">
                   <Sparkles className="w-4 h-4" />
-                  3. IA & Copier-Coller
+                  {t.tabs.ai}
                 </span>
-                <span className="opacity-75">Optionnel</span>
+                <span className="opacity-75">{t.tabs.aiBadge}</span>
               </button>
 
               <button
@@ -347,7 +372,7 @@ export default function App() {
               >
                 <span className="flex items-center gap-2">
                   <Cpu className="w-4 h-4" />
-                  4. MCP & Paramètres
+                  {isMobileNative ? t.tabs.mcpMobile : t.tabs.mcp}
                 </span>
                 <span
                   className={
@@ -362,19 +387,19 @@ export default function App() {
             {/* Local Cache Stats */}
             <section className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 space-y-2.5">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Audit SQLite Local
+                {t.stats.title}
               </h2>
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 gap-2 text-xs">
                 <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
-                  <div className="text-slate-400">Indexés</div>
+                  <div className="text-slate-400">{t.stats.indexed}</div>
                   <div className="text-base font-semibold tabular-nums mt-0.5">
-                    {stats.totalMessages.toLocaleString("fr-FR")}
+                    {stats.totalMessages.toLocaleString(locale)}
                   </div>
                 </div>
                 <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
-                  <div className="text-slate-400">Non lus</div>
+                  <div className="text-slate-400">{t.stats.unread}</div>
                   <div className="text-base font-semibold tabular-nums mt-0.5 text-amber-400">
-                    {stats.unreadMessages.toLocaleString("fr-FR")}
+                    {stats.unreadMessages.toLocaleString(locale)}
                   </div>
                 </div>
                 <button
@@ -385,22 +410,22 @@ export default function App() {
                     setQueryOpts((prev) => ({ ...prev, filter: nextFilter }));
                     setTab("triage");
                   }}
-                  title="Filtrer les newsletters dans Tri"
+                  title={t.stats.newslettersTitle}
                   className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer ${
                     queryOpts.filter === "newsletter"
                       ? "bg-amber-950/50 border-amber-600/80"
                       : "bg-slate-950 border-slate-800 hover:border-slate-700"
                   }`}
                 >
-                  <div className="text-slate-400">Newsletters</div>
+                  <div className="text-slate-400">{t.stats.newsletters}</div>
                   <div className="text-base font-semibold tabular-nums mt-0.5 text-amber-300">
-                    {stats.newsletterMessages.toLocaleString("fr-FR")}
+                    {stats.newsletterMessages.toLocaleString(locale)}
                   </div>
                 </button>
                 <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
-                  <div className="text-slate-400">Expéditeurs</div>
+                  <div className="text-slate-400">{t.stats.senders}</div>
                   <div className="text-base font-semibold tabular-nums mt-0.5 text-sky-400">
-                    {stats.uniqueSenders.toLocaleString("fr-FR")}
+                    {stats.uniqueSenders.toLocaleString(locale)}
                   </div>
                 </div>
               </div>
@@ -429,7 +454,7 @@ export default function App() {
                 onCreatePlan={async (selections) => {
                   try {
                     await window.sortbox.plans.createFromSenders({
-                      title: `Tri ${new Date().toLocaleTimeString("fr-FR")}`,
+                      title: `${t.triage.planTitlePrefix} ${new Date().toLocaleTimeString(locale)}`,
                       selections,
                     });
                     await refreshData();
@@ -505,7 +530,7 @@ export default function App() {
                     status: "confirmed",
                     method,
                     targetUrl,
-                    detail: "Confirmé manuellement par l'utilisateur",
+                    detail: t.triage.manualConfirmDetail,
                   });
                   await refreshData();
                 }}
@@ -658,7 +683,7 @@ export default function App() {
           }`}
         >
           <ListFilter className="w-4 h-4" />
-          <span>Tri</span>
+          <span>{t.tabs.mobileTriage}</span>
         </button>
         <button
           type="button"
@@ -668,7 +693,10 @@ export default function App() {
           }`}
         >
           <Layers className="w-4 h-4" />
-          <span>Plan{pendingMoveCount > 0 ? ` (${pendingMoveCount})` : ""}</span>
+          <span>
+            {t.tabs.mobilePlan}
+            {pendingMoveCount > 0 ? ` (${pendingMoveCount})` : ""}
+          </span>
         </button>
         <button
           type="button"
@@ -678,7 +706,7 @@ export default function App() {
           }`}
         >
           <Sparkles className="w-4 h-4" />
-          <span>IA</span>
+          <span>{t.tabs.mobileAi}</span>
         </button>
         <button
           type="button"
@@ -688,7 +716,7 @@ export default function App() {
           }`}
         >
           <Cpu className="w-4 h-4" />
-          <span>{isMobileNative ? "Réglages" : "MCP"}</span>
+          <span>{isMobileNative ? t.tabs.mobileSettings : t.tabs.mobileMcp}</span>
         </button>
       </nav>
     </div>

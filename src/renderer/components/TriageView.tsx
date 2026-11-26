@@ -15,6 +15,11 @@ import {
   SPECIAL_TRASH,
   formatDestinationLabel,
 } from "../../shared/folders.js";
+import {
+  formatBytesLocalized,
+  formatMessage,
+  localizeCategory,
+} from "../../shared/i18n.js";
 import type {
   FolderInfo,
   MailAccount,
@@ -23,6 +28,7 @@ import type {
   SyncProgressEvent,
   UnsubscribeResult,
 } from "../../shared/types.js";
+import { useI18n } from "../i18n/I18nContext.js";
 
 interface BatchUnsubOutcome {
   group: SenderGroup;
@@ -71,12 +77,6 @@ const DEFAULT_DESTINATIONS = [
   "Pro",
 ];
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} o`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} Ko`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
-}
-
 export function TriageView({
   accounts,
   activeAccountId,
@@ -91,6 +91,7 @@ export function TriageView({
   onUnsubscribeBatch,
   onMarkUnsubscribedManual,
 }: TriageViewProps) {
+  const { lang, locale, t } = useI18n();
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [destFolder, setDestFolder] = useState(SPECIAL_TRASH);
   const [customDest, setCustomDest] = useState("");
@@ -139,7 +140,9 @@ export function TriageView({
   }, [folders]);
 
   const effectiveDest =
-    destFolder === "__custom__" ? customDest.trim() || "A_Trier" : destFolder;
+    destFolder === "__custom__"
+      ? customDest.trim() || t.triage.defaultCustomFolder
+      : destFolder;
 
   const selectedItems = useMemo(() => {
     return senderGroups.filter((g) =>
@@ -278,7 +281,12 @@ export function TriageView({
       const noneCount = results.length - verifiedCount - manualCount - expiredCount;
       setUnsubFeedback({
         kind: verifiedCount > 0 ? "ok" : manualCount > 0 ? "info" : "warn",
-        text: `Vérification terminée : ${verifiedCount} confirmé(s), ${manualCount} à confirmer dans le navigateur, ${expiredCount} lien(s) expiré(s), ${noneCount} sans lien.`,
+        text: formatMessage(t.triage.batchVerifySummary, {
+          verified: verifiedCount,
+          manual: manualCount,
+          expired: expiredCount,
+          none: noneCount,
+        }),
       });
       setSelectedKeys(new Set());
     } finally {
@@ -297,7 +305,7 @@ export function TriageView({
               ...item,
               result: {
                 ...item.result,
-                message: "Ouvert — valide sur le site puis clique « C'est fait » ou « Vérifier ».",
+                message: t.triage.batchOpenedHint,
               },
             }
           : item,
@@ -349,10 +357,10 @@ export function TriageView({
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">
-            Tri par Expéditeur / Domaine (100 % sans IA)
+            {t.triage.title}
           </h2>
           <p className="text-xs text-slate-400">
-            Synchronise les en-têtes en lecture seule puis regroupe tes mails par expéditeur.
+            {t.triage.subtitle}
           </p>
         </div>
 
@@ -377,10 +385,10 @@ export function TriageView({
             onChange={(e) => setSyncLimit(Number(e.target.value))}
             className="text-xs bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 outline-none"
           >
-            <option value={500}>500 derniers mails</option>
-            <option value={1000}>1 000 derniers mails</option>
-            <option value={3000}>3 000 derniers mails</option>
-            <option value={0}>Toute la boîte (illimité)</option>
+            <option value={500}>{t.triage.last500}</option>
+            <option value={1000}>{t.triage.last1000}</option>
+            <option value={3000}>{t.triage.last3000}</option>
+            <option value={0}>{t.triage.allEmails}</option>
           </select>
 
           <button
@@ -390,7 +398,7 @@ export function TriageView({
             className="text-xs px-3.5 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${syncing ? "animate-spin" : ""}`} />
-            {syncing ? "Audit en cours..." : "Auditer (lecture seule)"}
+            {syncing ? t.triage.auditing : t.triage.auditBtn}
           </button>
         </div>
       </div>
@@ -399,7 +407,7 @@ export function TriageView({
         <div className="bg-slate-900 border border-sky-800/70 rounded-xl p-3 space-y-1.5 text-xs">
           <div className="flex justify-between">
             <span className="text-sky-300">
-              {syncProgress.message || `Synchronisation ${syncProgress.folderPath}...`}
+              {syncProgress.message || `${t.triage.syncingPrefix} ${syncProgress.folderPath}...`}
             </span>
             <span className="font-mono tabular-nums text-slate-300">
               {syncProgress.fetched} / {syncProgress.total}
@@ -433,7 +441,7 @@ export function TriageView({
                 onChange={(e) =>
                   onChangeQueryOpts({ ...queryOpts, search: e.target.value })
                 }
-                placeholder="Recherche FTS5 (expéditeur, objet)..."
+                placeholder={t.triage.searchPlaceholder}
                 className="text-xs bg-slate-950 border border-slate-700 rounded-lg pl-8 pr-3 py-2 w-60 outline-none focus:border-sky-500"
               />
             </div>
@@ -448,12 +456,12 @@ export function TriageView({
               }
               className="text-xs bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 outline-none"
             >
-              <option value="all">Tous les expéditeurs</option>
-              <option value="newsletter">Newsletters (List-Unsubscribe)</option>
-              <option value="known">Reconnus (dictionnaire FR)</option>
-              <option value="unknown">À classer (inconnus)</option>
-              <option value="unread">Avec non-lus</option>
-              <option value="large">Volumineux (&gt; 5 Mo)</option>
+              <option value="all">{t.triage.filterAll}</option>
+              <option value="newsletter">{t.triage.filterNewsletter}</option>
+              <option value="known">{t.triage.filterKnown}</option>
+              <option value="unknown">{t.triage.filterUnknown}</option>
+              <option value="unread">{t.triage.filterUnread}</option>
+              <option value="large">{t.triage.filterLarge}</option>
             </select>
 
             <select
@@ -466,8 +474,8 @@ export function TriageView({
               }
               className="text-xs bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 outline-none"
             >
-              <option value="sender">Grouper par adresse exacte</option>
-              <option value="domain">Grouper par domaine</option>
+              <option value="sender">{t.triage.groupBySender}</option>
+              <option value="domain">{t.triage.groupByDomain}</option>
             </select>
           </div>
 
@@ -488,7 +496,7 @@ export function TriageView({
               }`}
             >
               <BellOff className="w-3.5 h-3.5" />
-              Newsletters
+              {t.triage.newslettersBtn}
             </button>
 
             <button
@@ -496,7 +504,7 @@ export function TriageView({
               onClick={handleApplySuggestions}
               className="text-xs px-3 py-2 rounded-lg border border-emerald-700/70 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/40 cursor-pointer"
             >
-              Pré-trier via dictionnaire intégré
+              {t.triage.autoSortBtn}
             </button>
           </div>
         </div>
@@ -504,8 +512,10 @@ export function TriageView({
         {/* Bulk Action Bar */}
         <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg bg-slate-950 border border-slate-800">
           <span className="text-xs text-slate-300 tabular-nums">
-            {selectedItems.length} sélectionné(s) •{" "}
-            <strong className="text-white">{selectedEmailCount} mails</strong>
+            {selectedItems.length} {t.triage.selectedWord} •{" "}
+            <strong className="text-white">
+              {selectedEmailCount} {t.triage.emailsUnit}
+            </strong>
           </span>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -516,7 +526,7 @@ export function TriageView({
               className="text-xs px-3 py-1.5 rounded-lg border border-amber-600/80 bg-amber-950/50 hover:bg-amber-900/60 text-amber-200 font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
             >
               <BellOff className={`w-3.5 h-3.5 ${batchUnsubRunning ? "animate-pulse" : ""}`} />
-              {batchUnsubRunning ? "Désinscription..." : "Se désinscrire (sélection)"}
+              {batchUnsubRunning ? t.triage.unsubscribing : t.triage.unsubscribeSelectedBtn}
             </button>
 
             <select
@@ -526,10 +536,10 @@ export function TriageView({
             >
               {destinationChoices.map((d) => (
                 <option key={d} value={d}>
-                  {formatDestinationLabel(d)}
+                  {formatDestinationLabel(d, lang)}
                 </option>
               ))}
-              <option value="__custom__">+ Autre dossier...</option>
+              <option value="__custom__">{t.triage.customFolderOption}</option>
             </select>
 
             {destFolder === "__custom__" && (
@@ -537,7 +547,7 @@ export function TriageView({
                 type="text"
                 value={customDest}
                 onChange={(e) => setCustomDest(e.target.value)}
-                placeholder="MonDossier"
+                placeholder={t.triage.customFolderPlaceholder}
                 className="text-xs bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 w-40 outline-none"
               />
             )}
@@ -549,7 +559,7 @@ export function TriageView({
               className="text-xs px-3 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
             >
               <FolderPlus className="w-3.5 h-3.5" />
-              Ajouter au plan Dry-Run
+              {t.triage.addToPlanBtn}
             </button>
           </div>
         </div>
@@ -580,13 +590,13 @@ export function TriageView({
                       );
                       setUnsubFeedback({
                         kind: "ok",
-                        text: `${g.fromAddr || g.domain || g.groupKey} : marqué comme désinscrit / réglé.`,
+                        text: `${g.fromAddr || g.domain || g.groupKey} : ${t.triage.markedDoneFeedback}`,
                       });
                     }}
                     className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold inline-flex items-center gap-1 cursor-pointer"
                   >
                     <CheckCircle2 className="w-3 h-3" />
-                    {unsubFeedback.kind === "warn" ? "Marquer réglé" : "C'est fait"}
+                    {unsubFeedback.kind === "warn" ? t.triage.markHandled : t.triage.markDone}
                   </button>
                   {unsubFeedback.kind === "info" && (
                     <button
@@ -594,7 +604,7 @@ export function TriageView({
                       onClick={() => handleUnsubscribeOne(unsubFeedback.pendingGroup!)}
                       className="px-2 py-1 rounded border border-sky-600/80 hover:bg-sky-900/40 text-sky-200 cursor-pointer"
                     >
-                      Re-vérifier
+                      {t.triage.recheck}
                     </button>
                   )}
                 </>
@@ -604,7 +614,7 @@ export function TriageView({
                 onClick={() => setUnsubFeedback(null)}
                 className="underline cursor-pointer shrink-0"
               >
-                Fermer
+                {t.triage.close}
               </button>
             </div>
           </div>
@@ -614,7 +624,7 @@ export function TriageView({
           <div className="p-3 rounded-lg bg-slate-950 border border-amber-700/60 space-y-2.5 text-xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <strong className="text-amber-200">
-                Suivi de désinscription ({batchOutcomes.length} newsletter(s))
+                {formatMessage(t.triage.batchTrackingTitle, { count: batchOutcomes.length })}
               </strong>
               <div className="flex items-center gap-2">
                 {batchOutcomes.some(
@@ -631,7 +641,7 @@ export function TriageView({
                     className="px-2.5 py-1 rounded bg-rose-600/90 hover:bg-rose-500 text-white font-semibold inline-flex items-center gap-1 cursor-pointer"
                   >
                     <Trash2 className="w-3 h-3" />
-                    Nettoyer leurs mails (Corbeille Dry-Run)
+                    {t.triage.cleanEmailsTrash}
                   </button>
                 )}
                 <button
@@ -639,7 +649,7 @@ export function TriageView({
                   onClick={() => setBatchOutcomes([])}
                   className="text-slate-400 hover:text-slate-200 underline cursor-pointer"
                 >
-                  Fermer
+                  {t.triage.close}
                 </button>
               </div>
             </div>
@@ -666,7 +676,7 @@ export function TriageView({
                     {o.result.verified || o.handledManually ? (
                       <span className="text-emerald-300 inline-flex items-center gap-1 shrink-0 font-semibold">
                         <CheckCircle2 className="w-3.5 h-3.5" />
-                        Confirmé
+                        {t.triage.badgeConfirmed}
                       </span>
                     ) : needsManualLink ? (
                       <div className="inline-flex items-center gap-1.5 shrink-0">
@@ -681,30 +691,30 @@ export function TriageView({
                             <ExternalLink className="w-3 h-3" />
                           )}
                           {o.result.status === "opened_mailto"
-                            ? "Ouvrir l'e-mail"
-                            : "Ouvrir"}
+                            ? t.triage.openEmail
+                            : t.triage.openLink}
                         </button>
                         <button
                           type="button"
                           onClick={() => handleConfirmBatchOutcome(idx)}
                           className="px-2 py-1 rounded border border-emerald-700 bg-emerald-950/50 hover:bg-emerald-900/60 text-emerald-200 font-semibold cursor-pointer"
                         >
-                          C'est fait
+                          {t.triage.markDone}
                         </button>
                       </div>
                     ) : o.result.status === "expired" ? (
                       <div className="inline-flex items-center gap-1.5 shrink-0">
-                        <span className="text-rose-300">Expiré / 404</span>
+                        <span className="text-rose-300">{t.triage.expired404}</span>
                         <button
                           type="button"
                           onClick={() => handleConfirmBatchOutcome(idx)}
                           className="px-2 py-1 rounded border border-slate-700 hover:bg-slate-800 text-slate-300 cursor-pointer"
                         >
-                          Marquer réglé
+                          {t.triage.markHandled}
                         </button>
                       </div>
                     ) : (
-                      <span className="text-slate-500 shrink-0">Aucun lien</span>
+                      <span className="text-slate-500 shrink-0">{t.triage.noLink}</span>
                     )}
                   </div>
                 );
@@ -729,24 +739,25 @@ export function TriageView({
                     className="accent-sky-500 cursor-pointer"
                   />
                 </th>
-                <th className="py-2 pr-3">Expéditeur / Exemples</th>
-                <th className="py-2 pr-3">Catégorie locale</th>
-                <th className="py-2 pr-3 text-right">Mails</th>
-                <th className="py-2 pr-3 text-right">Non lus</th>
-                <th className="py-2 pr-3 text-right">Poids</th>
-                <th className="py-2 text-right">Actions</th>
+                <th className="py-2 pr-3">{t.triage.colSender}</th>
+                <th className="py-2 pr-3">{t.triage.colCategory}</th>
+                <th className="py-2 pr-3 text-right">{t.triage.colEmails}</th>
+                <th className="py-2 pr-3 text-right">{t.triage.colUnread}</th>
+                <th className="py-2 pr-3 text-right">{t.triage.colSize}</th>
+                <th className="py-2 text-right">{t.triage.colActions}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/80">
               {senderGroups.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-8 text-center text-slate-500">
-                    Aucun mail indexé pour ce filtre. Clique sur « Auditer (lecture seule) » pour analyser ta boîte.
+                    {t.triage.emptyTable}
                   </td>
                 </tr>
               ) : (
                 senderGroups.map((g) => {
                   const key = rowKey(g);
+                  const categoryLabel = localizeCategory(g.suggestedCategory, lang);
                   return (
                     <tr key={key} className="hover:bg-slate-950/60">
                       <td className="py-2.5 pr-2">
@@ -769,46 +780,46 @@ export function TriageView({
                               title={
                                 g.unsubscribeStatusDetail ||
                                 (g.unsubscribedAt
-                                  ? `Désinscrit le ${new Date(g.unsubscribedAt).toLocaleString("fr-FR")}`
-                                  : "Désinscription confirmée")
+                                  ? `${t.triage.unsubOnPrefix} ${new Date(g.unsubscribedAt).toLocaleString(locale)}`
+                                  : t.triage.badgeUnsubscribedTitle)
                               }
                               className="px-1.5 py-0.5 text-[10px] rounded-full bg-emerald-950/70 border border-emerald-700/80 text-emerald-300 inline-flex items-center gap-0.5 shrink-0"
                             >
                               <CheckCircle2 className="w-2.5 h-2.5" />
-                              Désinscrit
+                              {t.triage.badgeUnsubscribed}
                             </span>
                           ) : g.unsubscribeStatus === "pending" ? (
                             <span
-                              title={g.unsubscribeStatusDetail || "Page ouverte — confirmation requise"}
+                              title={g.unsubscribeStatusDetail || t.triage.badgePendingTitle}
                               className="px-1.5 py-0.5 text-[10px] rounded-full bg-sky-950/70 border border-sky-700/80 text-sky-300 shrink-0"
                             >
-                              À confirmer
+                              {t.triage.badgePending}
                             </span>
                           ) : g.unsubscribeStatus === "failed" ? (
                             <span
-                              title={g.unsubscribeStatusDetail || "Lien expiré ou introuvable"}
+                              title={g.unsubscribeStatusDetail || t.triage.badgeFailedTitle}
                               className="px-1.5 py-0.5 text-[10px] rounded-full bg-rose-950/70 border border-rose-700/80 text-rose-300 shrink-0"
                             >
-                              Lien expiré
+                              {t.triage.badgeFailed}
                             </span>
                           ) : g.unsubscribeOneClick ? (
                             <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-indigo-950/70 border border-indigo-700/80 text-indigo-300 shrink-0">
-                              1-clic auto
+                              {t.triage.badgeOneClick}
                             </span>
                           ) : g.hasUnsubscribe ? (
                             <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-amber-950/60 border border-amber-700/70 text-amber-300 shrink-0">
-                              Newsletter
+                              {t.triage.badgeNewsletter}
                             </span>
                           ) : null}
                         </div>
                         <div className="text-slate-400 truncate">
-                          {g.sampleSubjects[0] || "(Sans objet)"}
+                          {g.sampleSubjects[0] || t.triage.noSubject}
                         </div>
                       </td>
                       <td className="py-2.5 pr-3">
-                        {g.suggestedCategory ? (
+                        {categoryLabel ? (
                           <span className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-sky-300">
-                            {g.suggestedCategory}
+                            {categoryLabel}
                           </span>
                         ) : (
                           <span className="text-slate-500">—</span>
@@ -821,14 +832,14 @@ export function TriageView({
                         {g.unreadCount}
                       </td>
                       <td className="py-2.5 pr-3 text-right font-mono tabular-nums text-slate-400">
-                        {formatBytes(g.totalSizeBytes)}
+                        {formatBytesLocalized(g.totalSizeBytes, lang)}
                       </td>
                       <td className="py-2.5 text-right">
                         <div className="inline-flex items-center gap-1.5">
                           {g.unsubscribeStatus === "pending" && (
                             <button
                               type="button"
-                              title="Confirmer manuellement que tu as validé sur le site"
+                              title={t.triage.confirmManualTitle}
                               onClick={() =>
                                 onMarkUnsubscribedManual(
                                   g,
@@ -839,7 +850,7 @@ export function TriageView({
                               className="px-2 py-1 rounded border border-emerald-700/80 bg-emerald-950/50 text-emerald-200 hover:bg-emerald-900/50 inline-flex items-center gap-1 cursor-pointer"
                             >
                               <CheckCircle2 className="w-3 h-3" />
-                              C'est fait
+                              {t.triage.markDone}
                             </button>
                           )}
                           <button
@@ -847,14 +858,14 @@ export function TriageView({
                             disabled={unsubBusyKey === key}
                             title={
                               g.unsubscribeStatus === "confirmed" || g.unsubscribedAt
-                                ? "Vérifier à nouveau la désinscription"
+                                ? t.triage.unsubTooltipConfirmed
                                 : g.unsubscribeStatus === "pending"
-                                  ? "Re-vérifier sur le site ou rouvrir le lien le plus récent"
+                                  ? t.triage.unsubTooltipPending
                                   : g.unsubscribeStatus === "failed"
-                                    ? "Rechercher un lien plus récent sur le serveur IMAP"
+                                    ? t.triage.unsubTooltipFailed
                                     : g.hasUnsubscribe
-                                      ? "Trouver le lien le plus récent, vérifier et se désinscrire"
-                                      : "Chercher un lien de désinscription dans les mails récents"
+                                      ? t.triage.unsubTooltipHas
+                                      : t.triage.unsubTooltipFind
                             }
                             onClick={() => handleUnsubscribeOne(g)}
                             className={`px-2 py-1 rounded border inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 ${
@@ -875,16 +886,16 @@ export function TriageView({
                               }`}
                             />
                             {unsubBusyKey === key
-                              ? "Vérif..."
+                              ? t.triage.unsubBusy
                               : g.unsubscribeStatus === "confirmed" || g.unsubscribedAt
-                                ? "Vérifier"
+                                ? t.triage.unsubVerify
                                 : g.unsubscribeStatus === "pending"
-                                  ? "Vérifier"
+                                  ? t.triage.unsubVerify
                                   : g.unsubscribeStatus === "failed"
-                                    ? "Réessayer"
+                                    ? t.triage.unsubRetry
                                     : g.hasUnsubscribe
-                                      ? "Se désinscrire"
-                                      : "Désinscrire ?"}
+                                      ? t.triage.unsubAction
+                                      : t.triage.unsubMaybe}
                           </button>
                           <button
                             type="button"
@@ -903,7 +914,7 @@ export function TriageView({
                             className="px-2 py-1 rounded border border-slate-700 bg-slate-800 hover:bg-rose-950 hover:border-rose-700 text-slate-200 inline-flex items-center gap-1 cursor-pointer"
                           >
                             <Trash2 className="w-3 h-3 text-rose-400" />
-                            Corbeille
+                            {t.triage.trashBtn}
                           </button>
                         </div>
                       </td>
