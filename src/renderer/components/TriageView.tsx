@@ -1,7 +1,10 @@
 import React, { useMemo, useState } from "react";
 import {
+  BellOff,
+  CheckCircle2,
   ExternalLink,
   FolderPlus,
+  Mail,
   RefreshCw,
   Search,
   Trash2,
@@ -18,7 +21,14 @@ import type {
   SenderGroup,
   SenderQueryOptions,
   SyncProgressEvent,
+  UnsubscribeResult,
 } from "../../shared/types.js";
+
+interface BatchUnsubOutcome {
+  group: SenderGroup;
+  result: UnsubscribeResult;
+  handledManually?: boolean;
+}
 
 interface TriageViewProps {
   accounts: MailAccount[];
@@ -35,6 +45,15 @@ interface TriageViewProps {
       destFolder: string;
       matchBy: "sender" | "domain";
     }>,
+  ) => Promise<void>;
+  onUnsubscribeSender: (group: SenderGroup) => Promise<UnsubscribeResult>;
+  onUnsubscribeBatch: (
+    groups: SenderGroup[],
+  ) => Promise<Array<{ group: SenderGroup; result: UnsubscribeResult }>>;
+  onMarkUnsubscribedManual: (
+    group: SenderGroup,
+    method: string,
+    targetUrl: string | null,
   ) => Promise<void>;
 }
 
@@ -68,6 +87,9 @@ export function TriageView({
   onChangeQueryOpts,
   onSyncAccount,
   onCreatePlan,
+  onUnsubscribeSender,
+  onUnsubscribeBatch,
+  onMarkUnsubscribedManual,
 }: TriageViewProps) {
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [destFolder, setDestFolder] = useState(SPECIAL_TRASH);
@@ -75,6 +97,13 @@ export function TriageView({
   const [syncFolder, setSyncFolder] = useState("INBOX");
   const [syncLimit, setSyncLimit] = useState(1000);
   const [syncing, setSyncing] = useState(false);
+  const [unsubBusyKey, setUnsubBusyKey] = useState<string | null>(null);
+  const [batchUnsubRunning, setBatchUnsubRunning] = useState(false);
+  const [unsubFeedback, setUnsubFeedback] = useState<{
+    kind: "ok" | "info" | "warn";
+    text: string;
+  } | null>(null);
+  const [batchOutcomes, setBatchOutcomes] = useState<BatchUnsubOutcome[]>([]);
 
   const uniqueFolderNames = useMemo(() => {
     const names = new Set<string>(["INBOX"]);
@@ -183,6 +212,105 @@ export function TriageView({
       })),
     );
     setSelectedKeys(new Set());
+  }
+
+  async function handleUnsubscribeOne(group: SenderGroup) {
+    const key = rowKey(group);
+    setUnsubBusyKey(key);
+    setUnsubFeedback(null);
+    try {
+      const res = await onUnsubscribeSender(group);
+      const label =
+        queryOpts.groupBy === "domain"
+          ? group.domain || group.groupKey
+          : group.fromAddr || group.groupKey;
+      if (res.status === "one_click_sent") {
+        setUnsubFeedback({
+          kind: "ok",
+          text: `${label} : ${res.message}`,
+        });
+      } else if (res.status === "opened_browser" || res.status === "opened_mailto") {
+        setUnsubFeedback({
+          kind: "info",
+          text: `${label} : ${res.message}`,
+        });
+      } else {
+        setUnsubFeedback({
+          kind: "warn",
+          text: `${label} : ${res.message}`,
+        });
+      }
+    } catch (err) {
+      setUnsubFeedback({
+        kind: "warn",
+        text: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setUnsubBusyKey(null);
+    }
+  }
+
+  async function handleUnsubscribeSelected() {
+    if (!selectedItems.length) return;
+    setBatchUnsubRunning(true);
+    setUnsubFeedback(null);
+    try {
+      const results = await onUnsubscribeBatch(selectedItems);
+      setBatchOutcomes(results);
+      const autoCount = results.filter(
+        (r) => r.result.status === "one_click_sent",
+      ).length;
+      const manualCount = results.filter(
+        (r) =>
+          r.result.status === "opened_browser" ||
+          r.result.status === "opened_mailto",
+      ).length;
+      const noneCount = results.length - autoCount - manualCount;
+      setUnsubFeedback({
+        kind: autoCount > 0 ? "ok" : "info",
+        text: `Lot terminé : ${autoCount} désinscription(s) 1-clic envoyée(s), ${manualCount} à ouvrir ci-dessous, ${noneCount} sans lien détecté.`,
+      });
+      setSelectedKeys(new Set());
+    } finally {
+      setBatchUnsubRunning(false);
+    }
+  }
+
+  async function handleOpenBatchLink(idx: number) {
+    const outcome = batchOutcomes[idx];
+    if (!outcome?.result.url) return;
+    await window.sortbox.app.openExternal(outcome.result.url);
+    await onMarkUnsubscribedManual(
+      outcome.group,
+      outcome.result.method,
+      outcome.result.url,
+    );
+    setBatchOutcomes((prev) =>
+      prev.map((item, i) =>
+        i === idx ? { ...item, handledManually: true } : item,
+      ),
+    );
+  }
+
+  async function handleTrashBatchUnsubscribed() {
+    const actionable = batchOutcomes
+      .filter(
+        (o) =>
+          o.result.status === "one_click_sent" ||
+          o.result.status === "opened_browser" ||
+          o.result.status === "opened_mailto",
+      )
+      .map((o) => o.group);
+    if (!actionable.length) return;
+    const matchBy = queryOpts.groupBy === "domain" ? "domain" : "sender";
+    await onCreatePlan(
+      actionable.map((group) => ({
+        group,
+        destFolder: SPECIAL_TRASH,
+        matchBy,
+      })),
+    );
+    setBatchOutcomes([]);
   }
 
   return (
@@ -313,13 +441,34 @@ export function TriageView({
             </select>
           </div>
 
-          <button
-            type="button"
-            onClick={handleApplySuggestions}
-            className="text-xs px-3 py-2 rounded-lg border border-emerald-700/70 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/40 cursor-pointer"
-          >
-            Pré-trier via dictionnaire intégré
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                onChangeQueryOpts({
+                  ...queryOpts,
+                  filter:
+                    queryOpts.filter === "newsletter" ? "all" : "newsletter",
+                })
+              }
+              className={`text-xs px-3 py-2 rounded-lg border inline-flex items-center gap-1.5 cursor-pointer ${
+                queryOpts.filter === "newsletter"
+                  ? "border-amber-500 bg-amber-500/20 text-amber-200 font-semibold"
+                  : "border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
+              }`}
+            >
+              <BellOff className="w-3.5 h-3.5" />
+              Newsletters
+            </button>
+
+            <button
+              type="button"
+              onClick={handleApplySuggestions}
+              className="text-xs px-3 py-2 rounded-lg border border-emerald-700/70 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/40 cursor-pointer"
+            >
+              Pré-trier via dictionnaire intégré
+            </button>
+          </div>
         </div>
 
         {/* Bulk Action Bar */}
@@ -330,6 +479,16 @@ export function TriageView({
           </span>
 
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={!selectedItems.length || batchUnsubRunning}
+              onClick={handleUnsubscribeSelected}
+              className="text-xs px-3 py-1.5 rounded-lg border border-amber-600/80 bg-amber-950/50 hover:bg-amber-900/60 text-amber-200 font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+            >
+              <BellOff className={`w-3.5 h-3.5 ${batchUnsubRunning ? "animate-pulse" : ""}`} />
+              {batchUnsubRunning ? "Désinscription..." : "Se désinscrire (sélection)"}
+            </button>
+
             <select
               value={destFolder}
               onChange={(e) => setDestFolder(e.target.value)}
@@ -364,6 +523,109 @@ export function TriageView({
             </button>
           </div>
         </div>
+
+        {/* Unsubscribe feedback & batch follow-up */}
+        {unsubFeedback && (
+          <div
+            className={`p-3 rounded-lg border text-xs flex items-center justify-between gap-2 ${
+              unsubFeedback.kind === "ok"
+                ? "bg-emerald-950/40 border-emerald-700/80 text-emerald-200"
+                : unsubFeedback.kind === "info"
+                  ? "bg-sky-950/40 border-sky-700/80 text-sky-200"
+                  : "bg-amber-950/40 border-amber-700/80 text-amber-200"
+            }`}
+          >
+            <span>{unsubFeedback.text}</span>
+            <button
+              type="button"
+              onClick={() => setUnsubFeedback(null)}
+              className="underline cursor-pointer shrink-0"
+            >
+              Fermer
+            </button>
+          </div>
+        )}
+
+        {batchOutcomes.length > 0 && (
+          <div className="p-3 rounded-lg bg-slate-950 border border-amber-700/60 space-y-2.5 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <strong className="text-amber-200">
+                Suivi de désinscription ({batchOutcomes.length} newsletter(s))
+              </strong>
+              <div className="flex items-center gap-2">
+                {batchOutcomes.some(
+                  (o) =>
+                    o.result.status === "one_click_sent" ||
+                    o.result.status === "opened_browser" ||
+                    o.result.status === "opened_mailto",
+                ) && (
+                  <button
+                    type="button"
+                    onClick={handleTrashBatchUnsubscribed}
+                    className="px-2.5 py-1 rounded bg-rose-600/90 hover:bg-rose-500 text-white font-semibold inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Nettoyer leurs mails (Corbeille Dry-Run)
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setBatchOutcomes([])}
+                  className="text-slate-400 hover:text-slate-200 underline cursor-pointer"
+                >
+                  Fermer
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-1.5 max-h-52 overflow-y-auto">
+              {batchOutcomes.map((o, idx) => {
+                const label =
+                  queryOpts.groupBy === "domain"
+                    ? o.group.domain || o.group.groupKey
+                    : o.group.fromAddr || o.group.groupKey;
+                const needsManualLink =
+                  (o.result.status === "opened_browser" ||
+                    o.result.status === "opened_mailto") &&
+                  o.result.url;
+                return (
+                  <div
+                    key={rowKey(o.group)}
+                    className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-1.5 rounded bg-slate-900 border border-slate-800"
+                  >
+                    <div className="min-w-0">
+                      <span className="font-medium text-slate-200">{label}</span>{" "}
+                      <span className="text-slate-400">— {o.result.message}</span>
+                    </div>
+                    {o.result.status === "one_click_sent" || o.handledManually ? (
+                      <span className="text-emerald-300 inline-flex items-center gap-1 shrink-0 font-semibold">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Désinscrit
+                      </span>
+                    ) : needsManualLink ? (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenBatchLink(idx)}
+                        className="px-2.5 py-1 rounded bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold inline-flex items-center gap-1 cursor-pointer shrink-0"
+                      >
+                        {o.result.status === "opened_mailto" ? (
+                          <Mail className="w-3 h-3" />
+                        ) : (
+                          <ExternalLink className="w-3 h-3" />
+                        )}
+                        {o.result.status === "opened_mailto"
+                          ? "Ouvrir l'e-mail"
+                          : "Ouvrir le lien"}
+                      </button>
+                    ) : (
+                      <span className="text-slate-500 shrink-0">Aucun lien</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Senders Table */}
         <div className="overflow-x-auto">
@@ -410,10 +672,29 @@ export function TriageView({
                         />
                       </td>
                       <td className="py-2.5 pr-3 max-w-md">
-                        <div className="font-medium text-slate-100 truncate">
-                          {queryOpts.groupBy === "domain"
-                            ? g.domain || g.groupKey
-                            : g.fromAddr || g.groupKey}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-medium text-slate-100 truncate">
+                            {queryOpts.groupBy === "domain"
+                              ? g.domain || g.groupKey
+                              : g.fromAddr || g.groupKey}
+                          </span>
+                          {g.unsubscribedAt ? (
+                            <span
+                              title={`Désinscrit le ${new Date(g.unsubscribedAt).toLocaleString("fr-FR")}`}
+                              className="px-1.5 py-0.5 text-[10px] rounded-full bg-emerald-950/70 border border-emerald-700/80 text-emerald-300 inline-flex items-center gap-0.5 shrink-0"
+                            >
+                              <CheckCircle2 className="w-2.5 h-2.5" />
+                              Désinscrit
+                            </span>
+                          ) : g.unsubscribeOneClick ? (
+                            <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-indigo-950/70 border border-indigo-700/80 text-indigo-300 shrink-0">
+                              1-clic auto
+                            </span>
+                          ) : g.hasUnsubscribe ? (
+                            <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-amber-950/60 border border-amber-700/70 text-amber-300 shrink-0">
+                              Newsletter
+                            </span>
+                          ) : null}
                         </div>
                         <div className="text-slate-400 truncate">
                           {g.sampleSubjects[0] || "(Sans objet)"}
@@ -439,18 +720,38 @@ export function TriageView({
                       </td>
                       <td className="py-2.5 text-right">
                         <div className="inline-flex items-center gap-1.5">
-                          {g.unsubscribeUrl && (
-                            <button
-                              type="button"
-                              title="Ouvrir le lien de désabonnement"
-                              onClick={() =>
-                                window.sortbox.app.openExternal(g.unsubscribeUrl!)
-                              }
-                              className="p-1.5 rounded border border-slate-700 text-slate-300 hover:bg-slate-800 cursor-pointer"
-                            >
-                              <ExternalLink className="w-3 h-3" />
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            disabled={unsubBusyKey === key}
+                            title={
+                              g.unsubscribedAt
+                                ? "Relancer ou vérifier la désinscription"
+                                : g.hasUnsubscribe
+                                  ? "Se désinscrire de cette newsletter"
+                                  : "Chercher un lien de désinscription dans le dernier mail"
+                            }
+                            onClick={() => handleUnsubscribeOne(g)}
+                            className={`px-2 py-1 rounded border inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 ${
+                              g.unsubscribedAt
+                                ? "border-emerald-800/70 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/40"
+                                : g.hasUnsubscribe
+                                  ? "border-amber-700/80 bg-amber-950/50 text-amber-200 hover:bg-amber-900/60"
+                                  : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
+                            }`}
+                          >
+                            <BellOff
+                              className={`w-3 h-3 ${
+                                unsubBusyKey === key ? "animate-spin" : ""
+                              }`}
+                            />
+                            {unsubBusyKey === key
+                              ? "..."
+                              : g.unsubscribedAt
+                                ? "Désinscrit"
+                                : g.hasUnsubscribe
+                                  ? "Se désinscrire"
+                                  : "Désinscrire ?"}
+                          </button>
                           <button
                             type="button"
                             onClick={() =>

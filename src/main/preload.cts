@@ -9,6 +9,8 @@ import type {
   SortMoveItem,
   SortPlan,
   SyncProgressEvent,
+  UnsubscribeRequest,
+  UnsubscribeResult,
 } from "../shared/types.js";
 
 const api = {
@@ -34,6 +36,18 @@ const api = {
       ipcRenderer.invoke("emails:senderGroups", opts),
     search: (query: string, accountId?: string) =>
       ipcRenderer.invoke("emails:search", query, accountId),
+    unsubscribe: (
+      req: UnsubscribeRequest,
+      opts?: { openBrowserIfNeeded?: boolean },
+    ): Promise<UnsubscribeResult> =>
+      ipcRenderer.invoke("emails:unsubscribe", req, opts),
+    markUnsubscribed: (params: {
+      accountId: string;
+      senderKey: string;
+      method?: string;
+      targetUrl?: string | null;
+    }): Promise<string> =>
+      ipcRenderer.invoke("emails:markUnsubscribed", params),
   },
   plans: {
     list: () => ipcRenderer.invoke("plans:list"),

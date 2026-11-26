@@ -810,15 +810,160 @@ public class SortBoxPlugin extends Plugin {
         executor.execute(() -> call.resolve(db.saveSettings(partial)));
     }
 
+    private String launchExternalUri(String rawUrl) {
+        String mailto = AndroidImapEngine.sanitizeMailto(rawUrl);
+        String target = mailto != null ? mailto : AndroidImapEngine.sanitizeHttpUrl(rawUrl);
+        if (target == null) {
+            return null;
+        }
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(target));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        getActivity().runOnUiThread(() -> getActivity().startActivity(intent));
+        return target;
+    }
+
+    @PluginMethod
+    public void emailsMarkUnsubscribed(PluginCall call) {
+        String accountId = call.getString("accountId", "");
+        String senderKey = call.getString("senderKey", "");
+        String method = call.getString("method", "manual");
+        String targetUrl = call.getString("targetUrl", null);
+        executor.execute(() -> {
+            String at = db.markSenderUnsubscribed(accountId, senderKey, method, targetUrl);
+            JSObject res = new JSObject();
+            res.put("unsubscribedAt", at);
+            call.resolve(res);
+        });
+    }
+
+    @PluginMethod
+    public void emailsUnsubscribe(PluginCall call) {
+        boolean openBrowserIfNeeded = Boolean.TRUE.equals(call.getBoolean("openBrowserIfNeeded", true));
+        JSONObject req = call.getData().optJSONObject("req");
+        if (req == null) {
+            call.reject("Requête de désinscription invalide.");
+            return;
+        }
+        executor.execute(() -> {
+            try {
+                String accountId = req.optString("accountId", "");
+                String folderPath = req.optString("folderPath", "INBOX");
+                String groupKey = req.optString("groupKey", "");
+                String fromAddr = req.optString("fromAddr", "");
+                String domain = req.optString("domain", "");
+                String matchBy = req.optString("matchBy", "sender");
+                String matchValue = "domain".equals(matchBy)
+                    ? (!domain.isEmpty() ? domain : groupKey)
+                    : (!fromAddr.isEmpty() ? fromAddr : groupKey);
+                matchValue = matchValue.trim().toLowerCase(java.util.Locale.US);
+
+                AndroidMailDatabase.LatestUnsubCache latest =
+                    db.getLatestEmailForGroup(accountId, folderPath, matchBy, matchValue);
+
+                String httpUrl = req.isNull("unsubscribeUrl") ? null : req.optString("unsubscribeUrl", null);
+                if (httpUrl == null && latest != null) httpUrl = latest.unsubscribeUrl;
+
+                String mailtoUrl = req.isNull("unsubscribeMailto") ? null : req.optString("unsubscribeMailto", null);
+                if (mailtoUrl == null && latest != null) mailtoUrl = latest.unsubscribeMailto;
+
+                boolean oneClick = req.optBoolean("unsubscribeOneClick", false)
+                    || (latest != null && latest.unsubscribeOneClick);
+                boolean fromBody = false;
+
+                JSObject acc = db.getAccount(accountId);
+                if (acc != null && latest != null && !oneClick) {
+                    try {
+                        String secret = resolveAccessSecret(acc);
+                        AndroidImapEngine.UnsubscribeInfo fresh =
+                            imap.fetchLatestUnsubscribeInfo(acc, secret, folderPath, latest.uid);
+                        if (fresh.unsubscribeUrl != null) httpUrl = fresh.unsubscribeUrl;
+                        if (fresh.unsubscribeMailto != null) mailtoUrl = fresh.unsubscribeMailto;
+                        oneClick = fresh.unsubscribeOneClick;
+                        fromBody = fresh.fromBody;
+                        db.updateEmailUnsubscribeInfo(
+                            accountId,
+                            folderPath,
+                            latest.uid,
+                            fresh.hasUnsubscribe || httpUrl != null || mailtoUrl != null,
+                            httpUrl,
+                            mailtoUrl,
+                            oneClick
+                        );
+                    } catch (Exception ignored) {}
+                }
+
+                JSObject res = new JSObject();
+                if (oneClick && httpUrl != null && AndroidImapEngine.sendOneClickPost(httpUrl)) {
+                    String at = db.markSenderUnsubscribed(accountId, matchValue, "one_click_post", httpUrl);
+                    res.put("status", "one_click_sent");
+                    res.put("method", "one_click_post");
+                    res.put("url", httpUrl);
+                    res.put("message", "Désinscription automatique 1-clic confirmée !");
+                    res.put("unsubscribedAt", at);
+                    call.resolve(res);
+                    return;
+                }
+
+                if (httpUrl != null) {
+                    String method = fromBody ? "body_link" : "https";
+                    if (openBrowserIfNeeded) {
+                        launchExternalUri(httpUrl);
+                        String at = db.markSenderUnsubscribed(accountId, matchValue, method, httpUrl);
+                        res.put("status", "opened_browser");
+                        res.put("method", method);
+                        res.put("url", httpUrl);
+                        res.put("message", "Page de désinscription ouverte dans le navigateur.");
+                        res.put("unsubscribedAt", at);
+                    } else {
+                        res.put("status", "opened_browser");
+                        res.put("method", method);
+                        res.put("url", httpUrl);
+                        res.put("message", "Confirmation web requise — clique sur le lien ci-dessous.");
+                        res.put("unsubscribedAt", JSONObject.NULL);
+                    }
+                    call.resolve(res);
+                    return;
+                }
+
+                if (mailtoUrl != null) {
+                    if (openBrowserIfNeeded) {
+                        launchExternalUri(mailtoUrl);
+                        String at = db.markSenderUnsubscribed(accountId, matchValue, "mailto", mailtoUrl);
+                        res.put("status", "opened_mailto");
+                        res.put("method", "mailto");
+                        res.put("url", mailtoUrl);
+                        res.put("message", "E-mail de désinscription préparé.");
+                        res.put("unsubscribedAt", at);
+                    } else {
+                        res.put("status", "opened_mailto");
+                        res.put("method", "mailto");
+                        res.put("url", mailtoUrl);
+                        res.put("message", "Envoi d'e-mail de désinscription requis.");
+                        res.put("unsubscribedAt", JSONObject.NULL);
+                    }
+                    call.resolve(res);
+                    return;
+                }
+
+                res.put("status", "not_found");
+                res.put("method", "none");
+                res.put("url", JSONObject.NULL);
+                res.put("message", "Aucun lien de désinscription détecté pour cet expéditeur.");
+                res.put("unsubscribedAt", JSONObject.NULL);
+                call.resolve(res);
+            } catch (Exception e) {
+                call.reject(e.getMessage() != null ? e.getMessage() : e.toString(), e);
+            }
+        });
+    }
+
     @PluginMethod
     public void openExternal(PluginCall call) {
-        String url = call.getString("url", "");
-        if (!url.startsWith("https://") && !url.startsWith("http://")) {
+        String launched = launchExternalUri(call.getString("url", ""));
+        if (launched == null) {
             call.reject("Protocole URL non autorisé.");
             return;
         }
-        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-        getActivity().startActivity(intent);
         call.resolve();
     }
 }

@@ -5,6 +5,10 @@ import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.sun.mail.imap.IMAPFolder;
 import com.sun.mail.imap.IMAPStore;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -24,6 +28,8 @@ import javax.mail.Flags;
 import javax.mail.Folder;
 import javax.mail.Message;
 import javax.mail.MessagingException;
+import javax.mail.Multipart;
+import javax.mail.Part;
 import javax.mail.Session;
 import javax.mail.Store;
 import javax.mail.UIDFolder;
@@ -52,7 +58,194 @@ public class AndroidImapEngine {
         "inbox/archives", "inbox.archives", "[gmail]/tous les messages", "[gmail]/all mail"
     ));
 
-    private static final Pattern UNSUB_URL_PATTERN = Pattern.compile("<(https?://[^>]+)>", Pattern.CASE_INSENSITIVE);
+    private static final Pattern UNSUB_BRACKET_PATTERN = Pattern.compile("<([^>]+)>");
+    private static final Pattern ANCHOR_PATTERN = Pattern.compile(
+        "<a\\b[^>]*\\bhref\\s*=\\s*[\"']([^\"']+)[\"'][^>]*>([\\s\\S]*?)</a>",
+        Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern BARE_URL_PATTERN = Pattern.compile(
+        "(https?://[^\\s<>\"')]+)",
+        Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern UNSUB_KEYWORDS = Pattern.compile(
+        "d[eé]sabonn|d[eé]sinscri|unsubscribe|opt[-_]?out|stop\\s+receiving|ne\\s+plus\\s+recevoir|pr[eé]f[eé]rences|manage\\s+preferences",
+        Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern UNSUB_URL_HINT = Pattern.compile(
+        "unsub|opt[-_]?out|desabonn|desinscri|remove|preferences|list-manage",
+        Pattern.CASE_INSENSITIVE
+    );
+
+    public static class UnsubscribeInfo {
+        public boolean hasUnsubscribe;
+        public String unsubscribeUrl;
+        public String unsubscribeMailto;
+        public boolean unsubscribeOneClick;
+        public boolean fromBody;
+    }
+
+    public static String sanitizeHttpUrl(String raw) {
+        if (raw == null) return null;
+        String cleaned = raw.replace("&amp;", "&").replace("&AMP;", "&").trim();
+        if (cleaned.isEmpty()) return null;
+        try {
+            URL u = new URL(cleaned);
+            String proto = u.getProtocol().toLowerCase(Locale.US);
+            if (!"https".equals(proto) && !"http".equals(proto)) return null;
+            return u.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    public static String sanitizeMailto(String raw) {
+        if (raw == null) return null;
+        String cleaned = raw.replaceAll("[\\r\\n\\0]", "").trim();
+        if (cleaned.length() <= 7 || !cleaned.regionMatches(true, 0, "mailto:", 0, 7)) return null;
+        String target = cleaned.substring(7);
+        if (!target.contains("@") || target.length() > 500) return null;
+        return "mailto:" + target;
+    }
+
+    public static UnsubscribeInfo parseListUnsubscribeHeaders(String unsubRaw, String postRaw) {
+        UnsubscribeInfo info = new UnsubscribeInfo();
+        String value = unsubRaw == null ? "" : unsubRaw.trim();
+        if (value.isEmpty()) return info;
+        info.hasUnsubscribe = true;
+
+        List<String> candidates = new ArrayList<>();
+        Matcher bm = UNSUB_BRACKET_PATTERN.matcher(value);
+        while (bm.find()) {
+            candidates.add(bm.group(1).trim());
+        }
+        if (candidates.isEmpty()) {
+            for (String p : value.split(",")) {
+                candidates.add(p.trim());
+            }
+        }
+        for (String c : candidates) {
+            if (info.unsubscribeUrl == null) {
+                String http = sanitizeHttpUrl(c);
+                if (http != null) {
+                    info.unsubscribeUrl = http;
+                    continue;
+                }
+            }
+            if (info.unsubscribeMailto == null) {
+                String mailto = sanitizeMailto(c);
+                if (mailto != null) {
+                    info.unsubscribeMailto = mailto;
+                }
+            }
+        }
+        String postVal = postRaw == null ? "" : postRaw.toLowerCase(Locale.US);
+        boolean oneClickHeader = postVal.contains("list-unsubscribe=one-click") ||
+            Pattern.compile("list-unsubscribe\\s*=\\s*one-click", Pattern.CASE_INSENSITIVE).matcher(postVal).find();
+        info.unsubscribeOneClick = info.unsubscribeUrl != null && info.unsubscribeUrl.startsWith("https://") && oneClickHeader;
+        return info;
+    }
+
+    public static boolean sendOneClickPost(String httpsUrl) {
+        if (httpsUrl == null || !httpsUrl.startsWith("https://")) return false;
+        HttpURLConnection conn = null;
+        try {
+            URL url = new URL(httpsUrl);
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setConnectTimeout(10_000);
+            conn.setReadTimeout(10_000);
+            conn.setInstanceFollowRedirects(true);
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+            byte[] payload = "List-Unsubscribe=One-Click".getBytes(StandardCharsets.UTF_8);
+            conn.setRequestProperty("Content-Length", String.valueOf(payload.length));
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(payload);
+            }
+            int code = conn.getResponseCode();
+            return code >= 200 && code < 300;
+        } catch (Exception e) {
+            return false;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private static void extractBodyText(Part part, StringBuilder out, int maxChars) {
+        if (part == null || out.length() >= maxChars) return;
+        try {
+            Object content = part.getContent();
+            if (content instanceof String) {
+                String str = (String) content;
+                int remain = maxChars - out.length();
+                if (str.length() > remain) str = str.substring(0, remain);
+                out.append(str).append("\n");
+            } else if (content instanceof Multipart) {
+                Multipart mp = (Multipart) content;
+                for (int i = 0; i < mp.getCount() && out.length() < maxChars; i++) {
+                    extractBodyText(mp.getBodyPart(i), out, maxChars);
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private static UnsubscribeInfo extractFromBody(String body) {
+        UnsubscribeInfo info = new UnsubscribeInfo();
+        if (body == null || body.isEmpty()) return info;
+
+        String bestUrl = null;
+        int bestScore = -1;
+        String mailtoFallback = null;
+
+        Matcher am = ANCHOR_PATTERN.matcher(body);
+        while (am.find()) {
+            String rawHref = am.group(1);
+            String anchorText = am.group(2).replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
+            int start = am.start();
+            String context = body.substring(Math.max(0, start - 120), Math.min(body.length(), start + 220))
+                .replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
+
+            String mailto = sanitizeMailto(rawHref);
+            if (mailto != null && mailtoFallback == null &&
+                (UNSUB_KEYWORDS.matcher(anchorText).find() || UNSUB_KEYWORDS.matcher(context).find())) {
+                mailtoFallback = mailto;
+                continue;
+            }
+            String url = sanitizeHttpUrl(rawHref);
+            if (url == null) continue;
+
+            int score = 0;
+            if (UNSUB_KEYWORDS.matcher(anchorText).find()) score += 10;
+            if (UNSUB_URL_HINT.matcher(url).find()) score += 6;
+            if (UNSUB_KEYWORDS.matcher(context).find()) score += 3;
+            if (url.startsWith("https://")) score += 1;
+
+            if (score >= 6 && score > bestScore) {
+                bestScore = score;
+                bestUrl = url;
+            }
+        }
+
+        if (bestUrl == null) {
+            Matcher bm = BARE_URL_PATTERN.matcher(body);
+            while (bm.find()) {
+                int start = bm.start();
+                String context = body.substring(Math.max(0, start - 120), Math.min(body.length(), start + 80));
+                String url = sanitizeHttpUrl(bm.group(1));
+                if (url == null) continue;
+                if (UNSUB_KEYWORDS.matcher(context).find() || UNSUB_URL_HINT.matcher(url).find()) {
+                    bestUrl = url;
+                    break;
+                }
+            }
+        }
+
+        info.unsubscribeUrl = bestUrl;
+        info.unsubscribeMailto = mailtoFallback;
+        info.hasUnsubscribe = bestUrl != null || mailtoFallback != null;
+        info.fromBody = info.hasUnsubscribe;
+        return info;
+    }
 
     private IMAPStore openStore(
         String host,
@@ -236,6 +429,7 @@ public class AndroidImapEngine {
                 headerFp.add(FetchProfile.Item.FLAGS);
                 headerFp.add(FetchProfile.Item.SIZE);
                 headerFp.add("List-Unsubscribe");
+                headerFp.add("List-Unsubscribe-Post");
                 headerFp.add("Message-ID");
 
                 SimpleDateFormat isoFmt = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
@@ -289,17 +483,13 @@ public class AndroidImapEngine {
                             }
                         } catch (Exception ignored) {}
 
-                        boolean hasUnsub = false;
-                        String unsubUrl = null;
+                        UnsubscribeInfo unsub = new UnsubscribeInfo();
                         try {
                             String[] unsubs = m.getHeader("List-Unsubscribe");
-                            if (unsubs != null && unsubs.length > 0 && unsubs[0] != null && !unsubs[0].trim().isEmpty()) {
-                                hasUnsub = true;
-                                Matcher matcher = UNSUB_URL_PATTERN.matcher(unsubs[0]);
-                                if (matcher.find()) {
-                                    unsubUrl = matcher.group(1);
-                                }
-                            }
+                            String[] unsubPosts = m.getHeader("List-Unsubscribe-Post");
+                            String unsubVal = (unsubs != null && unsubs.length > 0) ? unsubs[0] : null;
+                            String postVal = (unsubPosts != null && unsubPosts.length > 0) ? unsubPosts[0] : null;
+                            unsub = parseListUnsubscribeHeaders(unsubVal, postVal);
                         } catch (Exception ignored) {}
 
                         Date dt = null;
@@ -335,9 +525,12 @@ public class AndroidImapEngine {
                         cv.put("size_bytes", sizeBytes);
                         cv.put("seen", seen ? 1 : 0);
                         cv.put("flagged", flagged ? 1 : 0);
-                        cv.put("has_unsubscribe", hasUnsub ? 1 : 0);
-                        if (unsubUrl != null) cv.put("unsubscribe_url", unsubUrl);
+                        cv.put("has_unsubscribe", unsub.hasUnsubscribe ? 1 : 0);
+                        if (unsub.unsubscribeUrl != null) cv.put("unsubscribe_url", unsub.unsubscribeUrl);
                         else cv.putNull("unsubscribe_url");
+                        if (unsub.unsubscribeMailto != null) cv.put("unsubscribe_mailto", unsub.unsubscribeMailto);
+                        else cv.putNull("unsubscribe_mailto");
+                        cv.put("unsubscribe_one_click", unsub.unsubscribeOneClick ? 1 : 0);
                         rows.add(cv);
                     }
 
@@ -578,6 +771,48 @@ public class AndroidImapEngine {
                 try { dest.close(true); } catch (Exception ignored) {}
             }
             return restored;
+        } finally {
+            try { store.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    public UnsubscribeInfo fetchLatestUnsubscribeInfo(
+        JSObject account,
+        String secret,
+        String folderPath,
+        long uid
+    ) throws Exception {
+        String email = account.getString("email");
+        String host = account.getString("imapHost");
+        int port = account.getInt("imapPort");
+        boolean secure = account.getBoolean("imapSecure");
+        boolean isOAuth = !"imap_password".equals(account.getString("authMode"));
+
+        IMAPStore store = openStore(host, port, secure, email, secret, isOAuth);
+        try {
+            IMAPFolder folder = (IMAPFolder) store.getFolder(folderPath);
+            folder.open(Folder.READ_ONLY);
+            try {
+                Message msg = folder.getMessageByUID(uid);
+                if (msg == null) return new UnsubscribeInfo();
+
+                String[] unsubs = msg.getHeader("List-Unsubscribe");
+                String[] unsubPosts = msg.getHeader("List-Unsubscribe-Post");
+                String unsubVal = (unsubs != null && unsubs.length > 0) ? unsubs[0] : null;
+                String postVal = (unsubPosts != null && unsubPosts.length > 0) ? unsubPosts[0] : null;
+                UnsubscribeInfo headerInfo = parseListUnsubscribeHeaders(unsubVal, postVal);
+                if (headerInfo.unsubscribeUrl != null || headerInfo.unsubscribeMailto != null) {
+                    return headerInfo;
+                }
+
+                StringBuilder bodyBuf = new StringBuilder();
+                extractBodyText(msg, bodyBuf, 256 * 1024);
+                UnsubscribeInfo bodyInfo = extractFromBody(bodyBuf.toString());
+                bodyInfo.hasUnsubscribe = bodyInfo.hasUnsubscribe || headerInfo.hasUnsubscribe;
+                return bodyInfo;
+            } finally {
+                try { folder.close(false); } catch (Exception ignored) {}
+            }
         } finally {
             try { store.close(); } catch (Exception ignored) {}
         }

@@ -11,7 +11,10 @@ import type {
   SenderGroup,
   SenderQueryOptions,
   SortMoveItem,
+  UnsubscribeRequest,
+  UnsubscribeResult,
 } from "../shared/types.js";
+import { sanitizeUnsubscribeMailto } from "../shared/unsubscribeUtils.js";
 import { runMicrosoftPkceLogin } from "./credentials/microsoftOAuth.js";
 import { SecretVault, type EncryptionProvider } from "./credentials/vault.js";
 import { AppDatabase } from "./db/database.js";
@@ -288,6 +291,170 @@ async function boot(): Promise<void> {
     db.searchEmailsFts(query, accountId, 100),
   );
 
+  ipcMain.handle(
+    "emails:markUnsubscribed",
+    (
+      _e,
+      params: {
+        accountId: string;
+        senderKey: string;
+        method?: string;
+        targetUrl?: string | null;
+      },
+    ) =>
+      db.markSenderUnsubscribed(
+        params.accountId,
+        params.senderKey,
+        params.method || "manual",
+        params.targetUrl ?? null,
+      ),
+  );
+
+  ipcMain.handle(
+    "emails:unsubscribe",
+    async (
+      _e,
+      req: UnsubscribeRequest,
+      opts?: { openBrowserIfNeeded?: boolean },
+    ): Promise<UnsubscribeResult> => {
+      const openBrowserIfNeeded = opts?.openBrowserIfNeeded !== false;
+      const matchValue =
+        req.matchBy === "domain"
+          ? (req.domain || req.groupKey).trim().toLowerCase()
+          : (req.fromAddr || req.groupKey).trim().toLowerCase();
+
+      const latest = db.getLatestEmailForGroup({
+        accountId: req.accountId,
+        folderPath: req.folderPath,
+        matchType: req.matchBy,
+        matchValue,
+      });
+
+      let httpUrl = req.unsubscribeUrl || latest?.unsubscribeUrl || null;
+      let mailtoUrl = req.unsubscribeMailto || latest?.unsubscribeMailto || null;
+      let oneClick = Boolean(req.unsubscribeOneClick || latest?.unsubscribeOneClick);
+      let fromBody = false;
+
+      const account = db.getAccount(req.accountId);
+      if (account && latest && !oneClick) {
+        try {
+          const fresh = await connector.fetchLatestUnsubscribeInfo(
+            account,
+            req.folderPath,
+            latest.uid,
+          );
+          if (fresh.unsubscribeUrl) httpUrl = fresh.unsubscribeUrl;
+          if (fresh.unsubscribeMailto) mailtoUrl = fresh.unsubscribeMailto;
+          oneClick = fresh.unsubscribeOneClick;
+          fromBody = fresh.fromBody;
+          db.updateEmailUnsubscribeInfo({
+            accountId: req.accountId,
+            folderPath: req.folderPath,
+            uid: latest.uid,
+            hasUnsubscribe:
+              fresh.hasUnsubscribe || Boolean(httpUrl || mailtoUrl),
+            unsubscribeUrl: httpUrl,
+            unsubscribeMailto: mailtoUrl,
+            unsubscribeOneClick: oneClick,
+          });
+        } catch {
+          // If IMAP inspection fails while a cached URL exists, continue with cached link
+        }
+      }
+
+      if (oneClick && httpUrl) {
+        try {
+          const res = await fetch(httpUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: "List-Unsubscribe=One-Click",
+            signal: AbortSignal.timeout(10000),
+          });
+          if (res.ok) {
+            const unsubscribedAt = db.markSenderUnsubscribed(
+              req.accountId,
+              matchValue,
+              "one_click_post",
+              httpUrl,
+            );
+            return {
+              status: "one_click_sent",
+              method: "one_click_post",
+              url: httpUrl,
+              message: "Désinscription automatique 1-clic confirmée !",
+              unsubscribedAt,
+            };
+          }
+        } catch {
+          // Fall back gracefully to browser/mailto if POST is blocked or fails
+        }
+      }
+
+      if (httpUrl) {
+        const method = fromBody ? "body_link" : "https";
+        if (openBrowserIfNeeded) {
+          await shell.openExternal(httpUrl);
+          const unsubscribedAt = db.markSenderUnsubscribed(
+            req.accountId,
+            matchValue,
+            method,
+            httpUrl,
+          );
+          return {
+            status: "opened_browser",
+            method,
+            url: httpUrl,
+            message: "Page de désinscription ouverte dans ton navigateur.",
+            unsubscribedAt,
+          };
+        }
+        return {
+          status: "opened_browser",
+          method,
+          url: httpUrl,
+          message: "Confirmation web requise — clique sur le lien ci-dessous.",
+          unsubscribedAt: null,
+        };
+      }
+
+      if (mailtoUrl) {
+        if (openBrowserIfNeeded) {
+          await shell.openExternal(mailtoUrl);
+          const unsubscribedAt = db.markSenderUnsubscribed(
+            req.accountId,
+            matchValue,
+            "mailto",
+            mailtoUrl,
+          );
+          return {
+            status: "opened_mailto",
+            method: "mailto",
+            url: mailtoUrl,
+            message: "E-mail de désinscription préparé dans ton logiciel mail.",
+            unsubscribedAt,
+          };
+        }
+        return {
+          status: "opened_mailto",
+          method: "mailto",
+          url: mailtoUrl,
+          message: "Envoi d'e-mail de désinscription requis.",
+          unsubscribedAt: null,
+        };
+      }
+
+      return {
+        status: "not_found",
+        method: "none",
+        url: null,
+        message: "Aucun lien de désinscription détecté sur cet expéditeur.",
+        unsubscribedAt: null,
+      };
+    },
+  );
+
   // --- IPC: Plans ---
   ipcMain.handle("plans:list", () => db.listPlans());
 
@@ -460,6 +627,11 @@ async function boot(): Promise<void> {
   }));
 
   ipcMain.handle("app:openExternal", async (_e, url: string) => {
+    const cleanMailto = sanitizeUnsubscribeMailto(url);
+    if (cleanMailto) {
+      await shell.openExternal(cleanMailto);
+      return;
+    }
     const parsed = new URL(url);
     if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
       throw new Error("Protocole URL non autorisé.");

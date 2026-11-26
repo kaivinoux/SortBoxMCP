@@ -21,6 +21,8 @@ import type {
   SortPlan,
   SortRule,
   SyncProgressEvent,
+  UnsubscribeRequest,
+  UnsubscribeResult,
 } from "../../shared/types.js";
 
 interface SortBoxNativePlugin {
@@ -55,6 +57,16 @@ interface SortBoxNativePlugin {
     groupBy?: string;
     limit?: number;
   }): Promise<{ items: Array<Omit<SenderGroup, "suggestedCategory" | "suggestedFolder">> }>;
+  emailsUnsubscribe(opts: {
+    req: UnsubscribeRequest;
+    openBrowserIfNeeded?: boolean;
+  }): Promise<UnsubscribeResult>;
+  emailsMarkUnsubscribed(opts: {
+    accountId: string;
+    senderKey: string;
+    method?: string;
+    targetUrl?: string | null;
+  }): Promise<{ unsubscribedAt: string }>;
   plansList(): Promise<{ items: SortPlan[] }>;
   plansCreateFromSenders(params: {
     title?: string;
@@ -187,8 +199,17 @@ export function createAndroidSortBoxApi(): SortBoxApi {
           flagged: false,
           hasUnsubscribe: g.hasUnsubscribe,
           unsubscribeUrl: g.unsubscribeUrl,
+          unsubscribeMailto: g.unsubscribeMailto ?? null,
+          unsubscribeOneClick: g.unsubscribeOneClick ?? false,
         }));
       },
+      unsubscribe: (req, opts) =>
+        SortBoxNative.emailsUnsubscribe({
+          req,
+          openBrowserIfNeeded: opts?.openBrowserIfNeeded ?? true,
+        }),
+      markUnsubscribed: async (params) =>
+        (await SortBoxNative.emailsMarkUnsubscribed(params)).unsubscribedAt,
     },
     plans: {
       list: async () => (await SortBoxNative.plansList()).items,

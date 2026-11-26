@@ -327,12 +327,26 @@ export default function App() {
                     {stats.unreadMessages.toLocaleString("fr-FR")}
                   </div>
                 </div>
-                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextFilter =
+                      queryOpts.filter === "newsletter" ? "all" : "newsletter";
+                    setQueryOpts((prev) => ({ ...prev, filter: nextFilter }));
+                    setTab("triage");
+                  }}
+                  title="Filtrer les newsletters dans Tri"
+                  className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer ${
+                    queryOpts.filter === "newsletter"
+                      ? "bg-amber-950/50 border-amber-600/80"
+                      : "bg-slate-950 border-slate-800 hover:border-slate-700"
+                  }`}
+                >
                   <div className="text-slate-400">Newsletters</div>
-                  <div className="text-base font-semibold tabular-nums mt-0.5">
+                  <div className="text-base font-semibold tabular-nums mt-0.5 text-amber-300">
                     {stats.newsletterMessages.toLocaleString("fr-FR")}
                   </div>
-                </div>
+                </button>
                 <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
                   <div className="text-slate-400">Expéditeurs</div>
                   <div className="text-base font-semibold tabular-nums mt-0.5 text-sky-400">
@@ -373,6 +387,72 @@ export default function App() {
                   } catch (err) {
                     setBannerError(err instanceof Error ? err.message : String(err));
                   }
+                }}
+                onUnsubscribeSender={async (group) => {
+                  const res = await window.sortbox.emails.unsubscribe(
+                    {
+                      accountId: group.accountId,
+                      folderPath: group.folderPath,
+                      groupKey: group.groupKey,
+                      fromAddr: group.fromAddr,
+                      domain: group.domain,
+                      matchBy: queryOpts.groupBy === "domain" ? "domain" : "sender",
+                      unsubscribeUrl: group.unsubscribeUrl,
+                      unsubscribeMailto: group.unsubscribeMailto,
+                      unsubscribeOneClick: group.unsubscribeOneClick,
+                    },
+                    { openBrowserIfNeeded: true },
+                  );
+                  await refreshData();
+                  return res;
+                }}
+                onUnsubscribeBatch={async (groups) => {
+                  const outcomes = [];
+                  for (const group of groups) {
+                    try {
+                      const result = await window.sortbox.emails.unsubscribe(
+                        {
+                          accountId: group.accountId,
+                          folderPath: group.folderPath,
+                          groupKey: group.groupKey,
+                          fromAddr: group.fromAddr,
+                          domain: group.domain,
+                          matchBy: queryOpts.groupBy === "domain" ? "domain" : "sender",
+                          unsubscribeUrl: group.unsubscribeUrl,
+                          unsubscribeMailto: group.unsubscribeMailto,
+                          unsubscribeOneClick: group.unsubscribeOneClick,
+                        },
+                        { openBrowserIfNeeded: false },
+                      );
+                      outcomes.push({ group, result });
+                    } catch (err) {
+                      outcomes.push({
+                        group,
+                        result: {
+                          status: "error" as const,
+                          method: "none" as const,
+                          url: null,
+                          message: err instanceof Error ? err.message : String(err),
+                          unsubscribedAt: null,
+                        },
+                      });
+                    }
+                  }
+                  await refreshData();
+                  return outcomes;
+                }}
+                onMarkUnsubscribedManual={async (group, method, targetUrl) => {
+                  const senderKey =
+                    queryOpts.groupBy === "domain"
+                      ? group.domain || group.groupKey
+                      : group.fromAddr || group.groupKey;
+                  await window.sortbox.emails.markUnsubscribed({
+                    accountId: group.accountId,
+                    senderKey,
+                    method,
+                    targetUrl,
+                  });
+                  await refreshData();
                 }}
               />
             )}

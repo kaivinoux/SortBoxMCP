@@ -4,6 +4,11 @@ import {
   isJunkDestination,
   isTrashDestination,
 } from "../../shared/folders.js";
+import {
+  extractUnsubscribeFromRawMessage,
+  parseListUnsubscribeFromHeaderBlock,
+  type ParsedUnsubscribeInfo,
+} from "../../shared/unsubscribeUtils.js";
 import type {
   EmailHeaderRecord,
   FolderInfo,
@@ -13,29 +18,6 @@ import type {
 import type { AppDatabase } from "../db/database.js";
 import { refreshMicrosoftToken } from "../credentials/microsoftOAuth.js";
 import type { SecretPayload, SecretVault } from "../credentials/vault.js";
-
-function extractUnsubscribeUrl(headerBuf?: Buffer): {
-  hasUnsubscribe: boolean;
-  unsubscribeUrl: string | null;
-} {
-  if (!headerBuf) {
-    return { hasUnsubscribe: false, unsubscribeUrl: null };
-  }
-  const text = headerBuf.toString("utf8");
-  const match = text.match(/list-unsubscribe:\s*([^\r\n]+(?:\r?\n[ \t]+[^\r\n]+)*)/i);
-  if (!match) {
-    return { hasUnsubscribe: false, unsubscribeUrl: null };
-  }
-  const value = match[1].replace(/\r?\n[ \t]+/g, " ").trim();
-  if (!value) {
-    return { hasUnsubscribe: false, unsubscribeUrl: null };
-  }
-  const urlMatch = value.match(/<(https?:\/\/[^>]+)>/i);
-  return {
-    hasUnsubscribe: true,
-    unsubscribeUrl: urlMatch ? urlMatch[1] : null,
-  };
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -374,7 +356,7 @@ export class ImapConnector {
               size: true,
               envelope: true,
               internalDate: true,
-              headers: ["list-unsubscribe"],
+              headers: ["list-unsubscribe", "list-unsubscribe-post"],
             },
             { uid: true },
           )) {
@@ -399,7 +381,7 @@ export class ImapConnector {
             const validDate = dateObj && !Number.isNaN(dateObj.getTime());
             const dateIso = validDate ? dateObj.toISOString() : "";
             const dateTs = validDate ? dateObj.getTime() : 0;
-            const unsub = extractUnsubscribeUrl(msg.headers);
+            const unsub = parseListUnsubscribeFromHeaderBlock(msg.headers);
 
             records.push({
               accountId: account.id,
@@ -419,6 +401,8 @@ export class ImapConnector {
               flagged: Boolean(msg.flags?.has("\\Flagged")),
               hasUnsubscribe: unsub.hasUnsubscribe,
               unsubscribeUrl: unsub.unsubscribeUrl,
+              unsubscribeMailto: unsub.unsubscribeMailto,
+              unsubscribeOneClick: unsub.unsubscribeOneClick,
             });
           }
 
@@ -562,6 +546,66 @@ export class ImapConnector {
     }
 
     return { movedCount, destUids, resolvedDest };
+  }
+
+  async fetchLatestUnsubscribeInfo(
+    account: MailAccount,
+    folderPath: string,
+    uid: number,
+  ): Promise<ParsedUnsubscribeInfo & { fromBody: boolean }> {
+    const secret = await this.resolveAuthSecret(account);
+    const client = this.buildClient(account, secret);
+
+    try {
+      await client.connect();
+      const lock = await client.getMailboxLock(folderPath, { readOnly: true });
+      try {
+        let headerInfo: ParsedUnsubscribeInfo = {
+          hasUnsubscribe: false,
+          unsubscribeUrl: null,
+          unsubscribeMailto: null,
+          unsubscribeOneClick: false,
+        };
+
+        for await (const msg of client.fetch(
+          [uid],
+          {
+            uid: true,
+            headers: ["list-unsubscribe", "list-unsubscribe-post"],
+          },
+          { uid: true },
+        )) {
+          headerInfo = parseListUnsubscribeFromHeaderBlock(msg.headers);
+        }
+
+        if (headerInfo.unsubscribeUrl || headerInfo.unsubscribeMailto) {
+          return { ...headerInfo, fromBody: false };
+        }
+
+        // Fallback: inspect only this single message source for footer unsubscribe links
+        for await (const msg of client.fetch(
+          [uid],
+          { uid: true, source: true },
+          { uid: true },
+        )) {
+          if (msg.source) {
+            const raw = msg.source.subarray(0, 512 * 1024).toString("utf8");
+            const bodyInfo = extractUnsubscribeFromRawMessage(raw);
+            return {
+              ...bodyInfo,
+              hasUnsubscribe: bodyInfo.hasUnsubscribe || headerInfo.hasUnsubscribe,
+              fromBody: Boolean(bodyInfo.unsubscribeUrl || bodyInfo.unsubscribeMailto),
+            };
+          }
+        }
+
+        return { ...headerInfo, fromBody: false };
+      } finally {
+        lock.release();
+      }
+    } finally {
+      await client.logout().catch(() => client.close());
+    }
   }
 
   async undoMove(params: {

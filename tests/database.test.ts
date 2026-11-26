@@ -103,4 +103,20 @@ describe("AppDatabase (SQLite + FTS5)", () => {
     db.removeMovedEmails("acc1", "INBOX", [12]);
     expect(db.searchEmailsFts("imposition", "acc1")).toHaveLength(0);
   });
+
+  it("tracks unsubscribed senders across sender and domain groupings", () => {
+    const ts = db.markSenderUnsubscribed(
+      "acc1",
+      "promo@boutique.fr",
+      "one_click_post",
+      "https://boutique.fr/unsub",
+    );
+    expect(ts).toBeTruthy();
+
+    const groups = db.querySenderGroups({ accountId: "acc1", folderPath: "INBOX" });
+    const promo = groups.find((g) => g.fromAddr === "promo@boutique.fr");
+    const dgfip = groups.find((g) => g.domain === "dgfip.finances.gouv.fr");
+    expect(promo?.unsubscribedAt).toBe(ts);
+    expect(dgfip?.unsubscribedAt).toBeNull();
+  });
 });

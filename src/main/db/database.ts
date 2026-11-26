@@ -93,6 +93,8 @@ export class AppDatabase {
         flagged INTEGER NOT NULL DEFAULT 0,
         has_unsubscribe INTEGER NOT NULL DEFAULT 0,
         unsubscribe_url TEXT,
+        unsubscribe_mailto TEXT,
+        unsubscribe_one_click INTEGER NOT NULL DEFAULT 0,
         UNIQUE (account_id, folder_path, uid)
       );
 
@@ -169,7 +171,25 @@ export class AppDatabase {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS unsubscribed_senders (
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        sender_key TEXT NOT NULL,
+        method TEXT NOT NULL,
+        target_url TEXT,
+        unsubscribed_at TEXT NOT NULL,
+        PRIMARY KEY (account_id, sender_key)
+      );
     `);
+
+    const cols = this.db.prepare("PRAGMA table_info(emails)").all() as Array<{ name: string }>;
+    const colNames = new Set(cols.map((c) => c.name));
+    if (!colNames.has("unsubscribe_mailto")) {
+      this.db.exec("ALTER TABLE emails ADD COLUMN unsubscribe_mailto TEXT;");
+    }
+    if (!colNames.has("unsubscribe_one_click")) {
+      this.db.exec("ALTER TABLE emails ADD COLUMN unsubscribe_one_click INTEGER NOT NULL DEFAULT 0;");
+    }
   }
 
   // --- Accounts ---
@@ -309,8 +329,8 @@ export class AppDatabase {
         INSERT INTO emails (
           account_id, folder_path, uid, message_id, from_raw, from_name, from_addr,
           domain, to_raw, subject, date_iso, date_ts, size_bytes, seen, flagged,
-          has_unsubscribe, unsubscribe_url
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          has_unsubscribe, unsubscribe_url, unsubscribe_mailto, unsubscribe_one_click
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(account_id, folder_path, uid) DO UPDATE SET
           message_id = excluded.message_id,
           from_raw = excluded.from_raw,
@@ -325,7 +345,9 @@ export class AppDatabase {
           seen = excluded.seen,
           flagged = excluded.flagged,
           has_unsubscribe = excluded.has_unsubscribe,
-          unsubscribe_url = excluded.unsubscribe_url
+          unsubscribe_url = excluded.unsubscribe_url,
+          unsubscribe_mailto = excluded.unsubscribe_mailto,
+          unsubscribe_one_click = excluded.unsubscribe_one_click
       `);
       for (const m of records) {
         stmt.run(
@@ -346,6 +368,8 @@ export class AppDatabase {
           m.flagged ? 1 : 0,
           m.hasUnsubscribe ? 1 : 0,
           m.unsubscribeUrl,
+          m.unsubscribeMailto ?? null,
+          m.unsubscribeOneClick ? 1 : 0,
         );
       }
       this.db.exec("COMMIT");
@@ -452,10 +476,16 @@ export class AppDatabase {
           SUM(e.size_bytes) AS total_size_bytes,
           MAX(e.has_unsubscribe) AS has_unsubscribe,
           MAX(e.unsubscribe_url) AS unsubscribe_url,
+          MAX(e.unsubscribe_mailto) AS unsubscribe_mailto,
+          MAX(e.unsubscribe_one_click) AS unsubscribe_one_click,
+          MAX(u.unsubscribed_at) AS unsubscribed_at,
           MAX(e.date_iso) AS latest_date_iso,
           GROUP_CONCAT(DISTINCT e.subject) AS joined_subjects
         FROM emails e
         JOIN accounts a ON a.id = e.account_id
+        LEFT JOIN unsubscribed_senders u
+          ON u.account_id = e.account_id
+          AND (u.sender_key = LOWER(e.from_addr) OR (e.domain <> '' AND u.sender_key = LOWER(e.domain)))
         ${where}
         GROUP BY e.account_id, e.folder_path, ${keyExpr}
         ORDER BY total_count DESC
@@ -500,6 +530,9 @@ export class AppDatabase {
         totalSizeBytes: Number(r.total_size_bytes),
         hasUnsubscribe: hasUnsub,
         unsubscribeUrl: r.unsubscribe_url ? String(r.unsubscribe_url) : null,
+        unsubscribeMailto: r.unsubscribe_mailto ? String(r.unsubscribe_mailto) : null,
+        unsubscribeOneClick: Boolean(r.unsubscribe_one_click),
+        unsubscribedAt: r.unsubscribed_at ? String(r.unsubscribed_at) : null,
         latestDateIso: String(r.latest_date_iso || ""),
         sampleSubjects,
         suggestedCategory: category,
@@ -602,7 +635,92 @@ export class AppDatabase {
       flagged: Boolean(r.flagged),
       hasUnsubscribe: Boolean(r.has_unsubscribe),
       unsubscribeUrl: r.unsubscribe_url ? String(r.unsubscribe_url) : null,
+      unsubscribeMailto: r.unsubscribe_mailto ? String(r.unsubscribe_mailto) : null,
+      unsubscribeOneClick: Boolean(r.unsubscribe_one_click),
     }));
+  }
+
+  getLatestEmailForGroup(params: {
+    accountId: string;
+    folderPath: string;
+    matchType: "sender" | "domain";
+    matchValue: string;
+  }): {
+    uid: number;
+    hasUnsubscribe: boolean;
+    unsubscribeUrl: string | null;
+    unsubscribeMailto: string | null;
+    unsubscribeOneClick: boolean;
+  } | null {
+    const arg = params.matchValue.trim().toLowerCase();
+    const col = params.matchType === "domain" ? "LOWER(domain)" : "LOWER(from_addr)";
+    const row = this.db
+      .prepare(
+        `SELECT uid, has_unsubscribe, unsubscribe_url, unsubscribe_mailto, unsubscribe_one_click
+         FROM emails
+         WHERE account_id = ? AND folder_path = ? AND ${col} = ?
+         ORDER BY date_ts DESC, uid DESC
+         LIMIT 1`,
+      )
+      .get(params.accountId, params.folderPath, arg) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+      uid: Number(row.uid),
+      hasUnsubscribe: Boolean(row.has_unsubscribe),
+      unsubscribeUrl: row.unsubscribe_url ? String(row.unsubscribe_url) : null,
+      unsubscribeMailto: row.unsubscribe_mailto ? String(row.unsubscribe_mailto) : null,
+      unsubscribeOneClick: Boolean(row.unsubscribe_one_click),
+    };
+  }
+
+  updateEmailUnsubscribeInfo(params: {
+    accountId: string;
+    folderPath: string;
+    uid: number;
+    hasUnsubscribe: boolean;
+    unsubscribeUrl: string | null;
+    unsubscribeMailto: string | null;
+    unsubscribeOneClick: boolean;
+  }): void {
+    this.db
+      .prepare(
+        `UPDATE emails
+         SET has_unsubscribe = ?,
+             unsubscribe_url = ?,
+             unsubscribe_mailto = ?,
+             unsubscribe_one_click = ?
+         WHERE account_id = ? AND folder_path = ? AND uid = ?`,
+      )
+      .run(
+        params.hasUnsubscribe ? 1 : 0,
+        params.unsubscribeUrl,
+        params.unsubscribeMailto,
+        params.unsubscribeOneClick ? 1 : 0,
+        params.accountId,
+        params.folderPath,
+        params.uid,
+      );
+  }
+
+  markSenderUnsubscribed(
+    accountId: string,
+    senderKey: string,
+    method: string,
+    targetUrl: string | null,
+  ): string {
+    const now = new Date().toISOString();
+    const normKey = senderKey.trim().toLowerCase();
+    this.db
+      .prepare(
+        `INSERT INTO unsubscribed_senders (account_id, sender_key, method, target_url, unsubscribed_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(account_id, sender_key) DO UPDATE SET
+           method = excluded.method,
+           target_url = excluded.target_url,
+           unsubscribed_at = excluded.unsubscribed_at`,
+      )
+      .run(accountId, normKey, method, targetUrl, now);
+    return now;
   }
 
   // --- Sort Plans ---

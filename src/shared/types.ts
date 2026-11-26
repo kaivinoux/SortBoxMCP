@@ -67,6 +67,8 @@ export interface EmailHeaderRecord {
   flagged: boolean;
   hasUnsubscribe: boolean;
   unsubscribeUrl: string | null;
+  unsubscribeMailto?: string | null;
+  unsubscribeOneClick?: boolean;
 }
 
 export interface SenderGroup {
@@ -82,10 +84,38 @@ export interface SenderGroup {
   totalSizeBytes: number;
   hasUnsubscribe: boolean;
   unsubscribeUrl: string | null;
+  unsubscribeMailto?: string | null;
+  unsubscribeOneClick?: boolean;
+  unsubscribedAt?: string | null;
   latestDateIso: string;
   sampleSubjects: string[];
   suggestedCategory: string | null;
   suggestedFolder: string | null;
+}
+
+export interface UnsubscribeRequest {
+  accountId: string;
+  folderPath: string;
+  groupKey: string;
+  fromAddr?: string;
+  domain?: string;
+  matchBy: "sender" | "domain";
+  unsubscribeUrl?: string | null;
+  unsubscribeMailto?: string | null;
+  unsubscribeOneClick?: boolean;
+}
+
+export interface UnsubscribeResult {
+  status:
+    | "one_click_sent"
+    | "opened_browser"
+    | "opened_mailto"
+    | "not_found"
+    | "error";
+  method: "one_click_post" | "https" | "mailto" | "body_link" | "none";
+  url: string | null;
+  message: string;
+  unsubscribedAt: string | null;
 }
 
 export interface SortMoveItem {

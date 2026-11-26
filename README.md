@@ -35,7 +35,7 @@ Download `IA-For-EveryOne-SortBox-Email-Android.apk` from the [Releases](https:/
    - Passwords and tokens encrypted locally via `electron.safeStorage` (Windows DPAPI) on Windows or **Android Keystore (`AES-256-GCM`)** on Android.
 2. **100% No-AI Sorting (Tier 1)**:
    - Read-only IMAP audit with incremental resume stored in local SQLite (`FTS5` full-text search on Windows).
-   - Grouped view by sender or domain, `List-Unsubscribe` detection, and built-in local category dictionary (*Administrative, Banks, Invoices, Shopping, Jobs, Social, Health*).
+   - Grouped view by sender or domain, **1-click Newsletter Unsubscribe** (`List-Unsubscribe-Post` RFC 8058 automatic POST, `mailto:`, or footer link fallback + batch unsubscribe & Trash cleanup), and built-in local category dictionary (*Administrative, Banks, Invoices, Shopping, Jobs, Social, Health*).
    - **Dry-Run** preview before moving any message, configurable wave execution, reusable rules, and **Undo**.
 3. **Optional AI Assistant (Tier 2)**:
    - **Free Copy-Paste** export/import for ChatGPT / Gemini / Claude Web (with email/number redaction in subject lines).
@@ -111,7 +111,7 @@ Télécharge le fichier `IA-For-EveryOne-SortBox-Email-Android.apk` depuis la pa
    - Mots de passe et tokens chiffrés localement via `electron.safeStorage` (DPAPI Windows) sur PC ou **Android Keystore (`AES-256-GCM`)** sur Android.
 2. **Tri 100 % sans IA (Niveau 1)** :
    - Audit IMAP en lecture seule avec reprise incrémentale stockée dans SQLite (et recherche plein texte `FTS5` sur Windows).
-   - Vue regroupée par expéditeur ou domaine, détection `List-Unsubscribe`, et dictionnaire local de catégories (*Administratif, Banques, Factures, Achats, Emploi, Social, Santé*).
+   - Vue regroupée par expéditeur ou domaine, **désinscription en 1 clic des newsletters** (`List-Unsubscribe-Post` RFC 8058 automatique, `mailto:`, ou lien détecté dans le mail + lot groupé & mise à la corbeille), et dictionnaire local de catégories (*Administratif, Banques, Factures, Achats, Emploi, Social, Santé*).
    - Aperçu **Dry-Run** avant tout déplacement, exécution par vagues configurables, règles réutilisables et **Undo** (annulation).
 3. **Assistant IA sans agent externe (Niveau 2)** :
    - Export/import **Copier-Coller gratuit** pour ChatGPT / Gemini / Claude Web (avec masquage d'emails/numéros dans les objets).
